@@ -740,10 +740,14 @@ function library:init()
     end
 
     for i,v in next, self.images do
-        if not isfile(self.cheatname..'/assets/'..i..'.oh') then
-            writefile(self.cheatname..'/assets/'..i..'.oh', game:HttpGet(v))
+        local path = self.cheatname..'/assets/'..i..'.oh'
+        local image = isfile(path) and readfile(path) or nil
+        if type(image) ~= 'string' or image:sub(1,8) ~= '\137PNG\r\n\26\n' then
+            image = startupArgs.fetch and startupArgs.fetch(v) or game:HttpGet(v)
+            assert(type(image) == 'string' and image:sub(1,8) == '\137PNG\r\n\26\n', 'Tokyo image download failed: '..i)
+            writefile(path, image)
         end
-        self.images[i] = readfile(self.cheatname..'/assets/'..i..'.oh');
+        self.images[i] = image;
     end
 
     self.cursor1 = utility:Draw('Triangle', {Filled = true, Color = fromrgb(255,255,255), ZIndex = self.zindexOrder.cursor});

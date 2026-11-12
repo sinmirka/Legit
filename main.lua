@@ -1,5 +1,52 @@
 -- Legit | Tokyo UI. Entry point for the README loadstring.
 local BASE='https://raw.githubusercontent.com/sinmirka/Legit/main/'
+-- BEGIN HTTP TRANSPORT
+-- Used by main.lua and the standalone loader.lua; never compile an unchecked body.
+local function download(path)
+    local bases={
+        'https://raw.githubusercontent.com/sinmirka/Legit/main/',
+        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@main/',
+    }
+    local methods,seen={},{}
+    local function add(name,callback)
+        if type(callback)=='function' and not seen[callback] then
+            seen[callback]=true
+            table.insert(methods,{Name=name,Get=function(url)
+                return callback({Url=url,Method='GET',Timeout=15})
+            end})
+        end
+    end
+    add('request',request)
+    add('http_request',http_request)
+    add('syn.request',type(syn)=='table' and syn.request)
+    add('http.request',type(http)=='table' and http.request)
+    table.insert(methods,{Name='HttpGet',Get=function(url) return game:HttpGet(url,true) end})
+    local failures={}
+    for index,base in ipairs(bases) do
+        for _,method in ipairs(methods) do
+            local ok,result=pcall(method.Get,base..path)
+            local body,problem=result,nil
+            if ok and type(result)=='table' then
+                local status=tonumber(result.StatusCode or result.Status)
+                if result.Success==false or (status and (status<200 or status>=300)) then
+                    problem='HTTP '..tostring(status or 'failure')
+                end
+                body=result.Body
+            end
+            if not ok then problem=tostring(result)
+            elseif not problem then
+                if type(body)~='string' then problem='expected response text, got '..type(body)
+                elseif not body:find('%S') then problem='empty response'
+                elseif path:match('%.png$') and body:sub(1,8)~='\137PNG\r\n\26\n' then problem='invalid PNG response'
+                elseif not path:match('%.png$') and body:match('^%s*<') then problem='HTML response instead of Lua' end
+            end
+            if not problem then return body end
+            table.insert(failures,('source %d / %s: %s'):format(index,method.Name,problem))
+        end
+    end
+    error('[Legit HTTP] '..path..' could not be downloaded. '..table.concat(failures,' | '),0)
+end
+-- END HTTP TRANSPORT
 assert(type(loadstring)=='function','Legit needs loadstring support')
 assert(type(getgenv)=='function','Legit needs getgenv support')
 assert(Drawing and type(Drawing.new)=='function','Tokyo UI requires the Drawing API')
@@ -10,13 +57,15 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 local env=getgenv()
 if env.Legit and env.Legit.Unload then env.Legit:Unload() end
 local function remote(path)
-    local ok,source=pcall(game.HttpGet,game,BASE..path)
-    assert(ok,'Legit download failed: '..path..' / '..tostring(source))
+    local source=download(path)
     local chunk,message=loadstring(source,'@Legit/'..path)
     assert(chunk,'Legit compile failed: '..path..' / '..tostring(message))
     return chunk
 end
-local library=remote('vendor/Tokyo.lua')({cheatname='Legit',gamename='Universal',fileext='.json'})
+local library=remote('vendor/Tokyo.lua')({cheatname='Legit',gamename='Universal',fileext='.json',fetch=function(url)
+    assert(url:sub(1,#BASE)==BASE,'Unexpected Tokyo asset URL')
+    return download(url:sub(#BASE+1))
+end})
 library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={

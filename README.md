@@ -5,12 +5,35 @@ ESP и наведение камеры с интерфейсом на **Tokyo Li
 ## Запуск
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/sinmirka/Legit/main/main.lua"))()
+local req = request or http_request or (syn and syn.request) or (http and http.request)
+for _, url in ipairs({
+    "https://raw.githubusercontent.com/sinmirka/Legit/main/main.lua",
+    "https://cdn.jsdelivr.net/gh/sinmirka/Legit@main/main.lua",
+}) do
+    for _, get in ipairs({
+        function() return req and req({Url = url, Method = "GET", Timeout = 15}) end,
+        function() return game:HttpGet(url, true) end,
+    }) do
+        local ok, response = pcall(get)
+        local code = ok and (type(response) == "table" and response.Body or response)
+        local status = type(response) == "table" and tonumber(response.StatusCode or response.Status)
+        local accepted = type(response) ~= "table" or (response.Success ~= false and (not status or (status >= 200 and status < 300)))
+        if accepted and type(code) == "string" and code:find("%S") then
+            local valid, chunk = pcall(loadstring, code)
+            if valid and type(chunk) == "function" then return chunk() end
+        end
+    end
+end
+error("[Legit] Download failed via HTTP API and HttpGet. Paste the complete loader.lua file instead.")
 ```
 
-Запуск через executor с поддержкой **Drawing API**, `loadstring`, `getgenv`, `game:HttpGet` и файловых функций `makefolder`, `isfile`, `readfile`, `writefile`. Обычный LocalScript в Studio для этой версии не подходит. Если отсутствует нужная функция, загрузчик укажет её название.
+Загрузчик проверяет ответ **до** вызова `loadstring`: пустой ответ или `nil` больше не передаются компилятору. Он пробует доступный HTTP API executor, `HttpGet` и запасной CDN-адрес. Если старый однострочник выдавал `string expected, got nil`, замени его этим блоком.
 
-Скрипт загружает Tokyo Lib, модуль логики и изображения из этого репозитория. Код Signal встроен в библиотеку; зависимости от удалённого Signal и `crypt.base64decode` удалены. При повторном запуске предыдущая копия выгружается.
+Альтернатива: скачай [loader.lua](loader.lua) и вставь **весь файл** в executor. Этот вариант начинает загрузку самостоятельно и выводит подробную ошибку, если ни один HTTP-метод не сработал. Сетевой доступ всё равно необходим для модулей и изображений.
+
+Запуск через executor с поддержкой **Drawing API**, `loadstring`, `getgenv`, хотя бы одного HTTP-метода (`request`, `http_request`, `syn.request`, `http.request` или `game:HttpGet`) и файловых функций `makefolder`, `isfile`, `readfile`, `writefile`. Обычный LocalScript в Studio для этой версии не подходит. Если отсутствует нужная функция, загрузчик укажет её название.
+
+Скрипт загружает Tokyo Lib, модуль логики и изображения из этого репозитория, напрямую с GitHub или через jsDelivr. Код Signal встроен в библиотеку; зависимости от удалённого Signal и `crypt.base64decode` удалены. Повреждённый кеш изображений заменяется после проверки PNG. При повторном запуске предыдущая копия выгружается.
 
 ## Управление
 
@@ -73,6 +96,7 @@ python tests/run.py --luau /path/to/luau
 ## Исходники
 
 - `main.lua` — загрузчик, настройки, интерфейс Tokyo и профили.
+- `loader.lua` — самостоятельный стартовый загрузчик; пересоздаётся командой `python tools/build_loader.py` после изменения HTTP-транспорта.
 - `src/Engine.lua` — ESP, выбор целей, управление камерой и очистка.
 - `vendor/Tokyo.lua` — предоставленная пользователем Tokyo Lib с локальными исправлениями.
 - `assets/` — ресурсы библиотеки, перенесённые в этот репозиторий.

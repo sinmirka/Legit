@@ -123,9 +123,9 @@ game={Loaded=signal()}
 function game:IsLoaded() return true end
 function game:GetService(name) assert(services[name],name); return services[name] end
 function game:HttpGet(url)
-    local path=url:match('sinmirka/Legit/main/(.+)')
+    local path=url:match('sinmirka/Legit/main/(.+)') or url:match('sinmirka/Legit@main/(.+)')
     assert(path,'Unexpected external download: '..url)
-    if path:match('^assets/') then return 'PNG' end
+    if path:match('^assets/') then return '\137PNG\r\n\26\nPNG' end
     assert(SOURCES[path],'Missing remote module '..path)
     return SOURCES[path]
 end
