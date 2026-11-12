@@ -1,10 +1,7 @@
 local requests=0
-function identifyexecutor() return 'Xeno','test' end
-function getcustomasset(path)
-    assert(MOCK.files[path] and MOCK.files[path]:sub(1,8)=='\137PNG\r\n\26\n','asset PNG missing')
-    return 'rbxasset://mock/'..path
-end
-Drawing.new=function() error('Xeno must use GUI renderer') end
+Drawing=nil
+getcustomasset=nil
+getsynasset=nil
 request=function() error('Bundle must not download modules or assets') end
 http_request=request
 game.HttpGet=function(_,url)
@@ -15,22 +12,13 @@ game.HttpGet=function(_,url)
 end
 assert(loadstring(SOURCES.README_BOOTSTRAP))()
 local app=assert(getgenv().Legit,'README launcher must create the application')
-assert(app.Alive and app.Renderer=='GUI','single-line README launcher starts the bundled Xeno application')
+assert(app.Alive and app.Library.Gui.Name=='PlayerToolsUI','original Player Tools UI starts')
 assert(requests==1,'exactly one download')
-assert(#app.Library.windows[1].tabs==7,'Tokyo UI preserved')
-local names={['gradient90.png']='gradientp90',['gradient45.png']='gradientp45',['hue.png']='colorhue',
-    ['transparency.png']='colortrans',['saturationBlack.png']='saturationBlack',['saturationWhite.png']='saturationWhite'}
-local expected=assert(loadstring(SOURCES.ASSET_EXPECTATIONS))()
-for name,metadata in pairs(expected) do
-    local data=assert(MOCK.files['Legit/assets/'..assert(names[name])..'.oh'])
-    assert(#data==metadata.Size,'PNG size '..name)
-    local low,high=1,0
-    for i=1,#data do low=(low+data:byte(i))%65521; high=(high+low)%65521 end
-    assert(high*65536+low==metadata.Checksum,'PNG bytes '..name)
-end
+assert(#app.Library.windows[1].tabs==7,'all settings tabs retained')
+assert(not SOURCES['Legit.lua']:find('files["vendor/Tokyo.lua"]',1,true),'Tokyo must not be bundled')
 app:Unload()
 assert(not app.DrawingRenderer.Alive and next(app.DrawingRenderer.Objects)==nil,'bundled cleanup')
 local second=assert(loadstring(SOURCES['Legit.lua']))()
 assert(second.Alive and requests==1,'embedded copy can execute again without any network')
 second:Unload()
-print('PASS README one-line loadstring: exactly one HTTP request, full Tokyo UI, byte-exact embedded PNG assets and repeat execution without downloads')
+print('PASS README one-line loadstring: one request, original GUI, no Tokyo, no Drawing/getcustomasset and no dependency downloads')

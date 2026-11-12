@@ -1,4 +1,4 @@
--- Rendering and camera targeting. UI is owned by vendor/Tokyo.lua.
+-- Rendering and camera targeting. UI is owned by src/NativeUI.lua.
 local Players = game:GetService('Players')
 local RunService = game:GetService('RunService')
 local Input = game:GetService('UserInputService')
@@ -31,7 +31,7 @@ local function characterOf(player)
     local character = player.Character
     if not character or not character:IsDescendantOf(workspace) then return nil end
     local humanoid = character:FindFirstChildOfClass('Humanoid')
-    local root = character:FindFirstChild('HumanoidRootPart')
+    local root = character:FindFirstChild('HumanoidRootPart') or (humanoid and humanoid.RootPart) or character.PrimaryPart or character:FindFirstChild('Torso')
     if not humanoid or humanoid.Health <= 0 or not root or not root:IsA('BasePart') then return nil end
     return character, humanoid, root
 end
@@ -92,22 +92,28 @@ function Engine:Visible(character, position, camera)
 end
 function Engine:Candidate(other, camera, localRoot)
     local a = self.config.Aim
-    if not self:Allowed(other, a) then return nil end
+    if other==self.player then return nil,'self' end
+    if a.TeamCheck and sameTeam(self.player,other) then return nil,'team' end
+    if not self:Allowed(other, a) then return nil,'friend' end
     local character, humanoid, root = characterOf(other)
-    if not character or humanoid.Health < a.MinHealth then return nil end
-    if a.SkipForceField and character:FindFirstChildOfClass('ForceField') then return nil end
+    if not character or humanoid.Health < a.MinHealth then return nil,'rig/health' end
+    if a.SkipForceField and character:FindFirstChildOfClass('ForceField') then return nil,'ForceField' end
     local distance = (root.Position - localRoot.Position).Magnitude
-    if distance > a.MaxDistance then return nil end
+    if distance > a.MaxDistance then return nil,'distance' end
     local part = character:FindFirstChild(a.Part)
-    if not part and (a.Part == 'UpperTorso' or a.Part == 'LowerTorso') then part = character:FindFirstChild('Torso') end
-    if not part or not part:IsA('BasePart') then return nil end
+    if not part then
+        local r6={UpperTorso='Torso',LowerTorso='Torso',LeftUpperArm='Left Arm',RightUpperArm='Right Arm',
+            LeftUpperLeg='Left Leg',RightUpperLeg='Right Leg'}
+        if r6[a.Part] then part=character:FindFirstChild(r6[a.Part]) end
+    end
+    if not part or not part:IsA('BasePart') then return nil,'body part' end
     local position = part.Position + Vector3.new(a.OffsetX, a.OffsetY, a.OffsetZ)
     if a.Prediction then position = position + root.AssemblyLinearVelocity * a.LeadTime end
     local screen, onScreen = point(camera, position)
-    if not onScreen then return nil end
+    if not onScreen then return nil,'offscreen' end
     local pixels = (screen - camera.ViewportSize/2).Magnitude
-    if pixels > a.Radius then return nil end
-    if a.WallCheck and not self:Visible(character, part.Position, camera) then return nil end
+    if pixels > a.Radius then return nil,'FOV' end
+    if a.WallCheck and not self:Visible(character, part.Position, camera) then return nil,'wall' end
     local score = pixels
     if a.Priority == 'Distance' then score = distance end
     if a.Priority == 'Lowest health' then score = humanoid.Health end
@@ -125,8 +131,10 @@ function Engine:Choose(camera, root, now)
         return current
     end
     local best
+    self.Rejected={}
     for _, other in ipairs(Players:GetPlayers()) do
-        local candidate = self:Candidate(other, camera, root)
+        local candidate,reason = self:Candidate(other, camera, root)
+        if not candidate and reason~='self' then self.Rejected[reason or 'other']=(self.Rejected[reason or 'other'] or 0)+1 end
         if candidate and (not best or candidate.Score < best.Score or (candidate.Score == best.Score and other.UserId < best.Player.UserId)) then
             best = candidate
         end
@@ -141,21 +149,58 @@ function Engine:Choose(camera, root, now)
     self.target, self.lastSwitch, self.pending = best.Player, now, nil
     return best
 end
+function Engine:SetStatus(value)
+    self.Status=value
+    if self.library.SetStatus then self.library:SetStatus(value) end
+end
+function Engine:PointerBlocked()
+    return (self.library.IsPointerOverUI and self.library:IsPointerOverUI()) or (self.library.IsInteracting and self.library:IsInteracting()) or false
+end
+function Engine:KeyDown()
+    local key=self.config.Aim.Key
+    if key=='none' then return false end
+    local ok,down
+    if key==Enum.UserInputType.MouseButton1 or key==Enum.UserInputType.MouseButton2 or key==Enum.UserInputType.MouseButton3 then
+        ok,down=pcall(function() return Input:IsMouseButtonPressed(key) end)
+    else
+        ok,down=pcall(function() return Input:IsKeyDown(key) end)
+    end
+    return ok and down or (not ok and self.held) or false
+end
 function Engine:Aim(camera, root, dt)
     local a = self.config.Aim
     local active = a.Mode == 'Always' or (a.Mode == 'Hold' and self.held) or (a.Mode == 'Toggle' and self.toggled)
-    if not a.Enabled or not active or not root or not self.focused or Input:GetFocusedTextBox()
-        or (a.PauseMenu and self.library.open) or (a.SkipScriptable and camera.CameraType == Enum.CameraType.Scriptable) then
-        self:ResetTarget(); return
-    end
+    local blocked
+    if not a.Enabled then blocked='Aimbot: OFF'
+    elseif not self.focused then blocked='Aimbot: window out of focus'
+    elseif not root then blocked='Aimbot: waiting for your character'
+    elseif Input:GetFocusedTextBox() then blocked='Aimbot: typing'
+    elseif self:PointerBlocked() then blocked='Aimbot: pointer over settings'
+    elseif a.PauseMenu and self.library.open then blocked='Aimbot: paused by menu option'
+    elseif a.SkipScriptable and camera.CameraType==Enum.CameraType.Scriptable then blocked='Aimbot: Scriptable camera skipped'
+    elseif not active then blocked='Aimbot: hold '..(typeof(a.Key)=='EnumItem' and a.Key.Name or 'a bound key') end
+    if blocked then self:ResetTarget(); self:SetStatus(blocked); return end
     local candidate = self:Choose(camera, root, os.clock())
     self.aimLine.Visible = candidate ~= nil and a.TargetLine
-    if not candidate then return end
+    if not candidate then
+        local reasons={}
+        for reason,count in pairs(self.Rejected or {}) do table.insert(reasons,reason..': '..count) end
+        table.sort(reasons)
+        self:SetStatus('Aimbot: '..(self.pending and 'acquiring target' or 'no target')..(#reasons>0 and ' | '..table.concat(reasons,', ') or ''))
+        return
+    end
+    self:SetStatus('Target: @'..candidate.Player.Name..' / '..candidate.Part.Name)
     self.aimLine.From, self.aimLine.To = camera.ViewportSize/2, candidate.Screen
     self.aimLine.Color, self.aimLine.Transparency = a.TargetColor, a.FOVOpacity*self:Opacity('Aim','TargetColor')
     if candidate.Pixels <= a.Deadzone then return end
     local position, destination = camera.CFrame.Position, candidate.Position
-    if a.Axis == 'Horizontal' then destination = Vector3.new(destination.X, position.Y, destination.Z) end
+    if a.Axis == 'Horizontal' then
+        local delta=destination-position
+        local flat=Vector3.new(delta.X,0,delta.Z)
+        if flat.Magnitude<0.001 then return end
+        local pitchY=math.clamp(camera.CFrame.LookVector.Y,-1,1)
+        destination=position+(flat.Unit*math.sqrt(math.max(0,1-pitchY*pitchY))+Vector3.new(0,pitchY,0))*delta.Magnitude
+    end
     if a.Axis == 'Vertical' then
         local look = camera.CFrame.LookVector
         local flat = Vector3.new(look.X, 0, look.Z)
@@ -366,8 +411,8 @@ function Engine:Start()
         self:RemoveRecord(other); self.friends[other]=nil
         if self.target == other then self:ResetTarget() end
     end)
-    self:Connect(Input.InputBegan,function(input,processed)
-        if not processed and not Input:GetFocusedTextBox() and (input.KeyCode==self.config.Aim.Key or input.UserInputType==self.config.Aim.Key) then
+    self:Connect(Input.InputBegan,function(input)
+        if not Input:GetFocusedTextBox() and not self:PointerBlocked() and (input.KeyCode==self.config.Aim.Key or input.UserInputType==self.config.Aim.Key) then
             if self.config.Aim.PauseMenu and self.library.open then return end
             self.held,self.toggled = true,not self.toggled
         end
@@ -380,7 +425,7 @@ function Engine:Start()
     end)
     self:Connect(Input.WindowFocused,function() self.focused=true end)
     local elapsed=0
-    RunService:BindToRenderStep(self.renderName,Enum.RenderPriority.Camera.Value+1,function(dt)
+    RunService:BindToRenderStep(self.renderName,Enum.RenderPriority.Last.Value+1,function(dt)
         if not self.alive then return end
         local camera=workspace.CurrentCamera
         if not camera then
@@ -390,6 +435,7 @@ function Engine:Start()
         end
         local character,_,root=characterOf(self.player)
         self.ray.FilterDescendantsInstances=character and {character,camera} or {camera}
+        if self.config.Aim.Mode=='Hold' then self.held=self:KeyDown() end
         self:Aim(camera,root,dt)
         local a=self.config.Aim
         self.fov.Position,self.fov.Radius=camera.ViewportSize/2,a.Radius

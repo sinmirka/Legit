@@ -61,7 +61,7 @@ function color:ToHSV() return 0.5,0.5,0.5 end
 Color3={new=rgb,fromRGB=function(r,g,b) return rgb(r/255,g/255,b/255) end,fromHSV=function(h,s,v) return rgb(h,s,v) end}
 Enum=setmetatable({},{__index=function(self,category)
     local group=setmetatable({GetEnumItems=function() return {} end},{__index=function(t,name)
-        local value={Name=name,Value=name=='Camera' and 200 or 0,__type='EnumItem'}
+        local value={Name=name,Value=name=='Camera' and 200 or name=='Last' and 2000 or 0,__type='EnumItem'}
         rawset(t,name,value); return value
     end})
     rawset(self,category,group); return group
@@ -74,7 +74,8 @@ function object:FindFirstChildOfClass(class)
     for _,child in pairs(self.Children) do if child.ClassName==class then return child end end
 end
 function object:IsDescendantOf(parent) return parent==workspace or parent==self.Parent end
-Instance={new=function(class) return setmetatable({ClassName=class,Children={},Destroying=signal(),__type='Instance'},object) end}
+Instance={new=function(class) return setmetatable({ClassName=class,Children={},Destroying=signal(),Activated=signal(),FocusLost=signal(),
+    InputBegan=signal(),InputChanged=signal(),InputEnded=signal(),AbsolutePosition=vec(200,100),AbsoluteSize=vec(690,620),__type='Instance'},object) end}
 RaycastParams={new=function() return {} end}
 local drawMeta={}
 DRAWINGS={}
@@ -104,13 +105,15 @@ services.TextService={GetTextSize=function(_,value,size)
     for line in (value..'\n'):gmatch('(.-)\n') do maxWidth=math.max(maxWidth,#line*size*0.5); lines+=1 end
     return vec(maxWidth,size*math.max(1,lines))
 end}
-services.RunService={RenderStepped=signal(),bindings={}}
-function services.RunService:BindToRenderStep(name,_,callback) self.bindings[name]=callback end
+services.RunService={RenderStepped=signal(),bindings={},priorities={}}
+function services.RunService:BindToRenderStep(name,priority,callback) self.bindings[name]=callback; self.priorities[name]=priority end
 function services.RunService:UnbindFromRenderStep(name) self.bindings[name]=nil end
 services.UserInputService={InputBegan=signal(),InputEnded=signal(),InputChanged=signal(),WindowFocusReleased=signal(),WindowFocused=signal()}
 function services.UserInputService:GetFocusedTextBox() return nil end
 function services.UserInputService:GetMouseLocation() return vec(10,10) end
-function services.UserInputService:IsKeyDown() return false end
+services.UserInputService.Down={}
+function services.UserInputService:IsKeyDown(key) return self.Down[key]==true end
+function services.UserInputService:IsMouseButtonPressed(key) return self.Down[key]==true end
 services.ContextActionService={BindAction=function() end,UnbindAction=function() end}
 services.CoreGui={}
 services.Stats={Network={ServerStatsItem={['Data Ping']={GetValue=function() return 20 end}}}}

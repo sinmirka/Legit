@@ -7,8 +7,8 @@ local function download(path)
         return bundledFiles[path]
     end
     local bases={
-        'https://raw.githubusercontent.com/sinmirka/Legit/xeno-gui-v1/',
-        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@xeno-gui-v1/',
+        'https://raw.githubusercontent.com/sinmirka/Legit/main/',
+        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@main/',
     }
     local methods,seen={},{}
     local function add(name,callback)

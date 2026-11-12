@@ -1,11 +1,11 @@
 local app=assert(loadstring(SOURCES['main.lua'],'@main.lua'))()
 assert(app.Alive and app.Library.hasInit,'startup')
-assert(#app.Library.windows==1,'one Tokyo window')
+assert(#app.Library.windows==1,'one Player Tools window')
 assert(#app.Library.windows[1].tabs==7,'seven settings tabs')
 local count=0
 for _ in pairs(app.Library.options) do count+=1 end
 assert(count>=90,'expected extensive settings: '..count)
-print('PASS actual Tokyo startup and '..count..' UI options')
+print('PASS native Player Tools UI startup and '..count..' UI options')
 local function option(name) return assert(app.Library.options[name],name) end
 option('ESP_Enabled'):SetState(true)
 option('ESP_FillOpacity'):SetValue(0.6)
@@ -74,6 +74,7 @@ local camera=workspace.CurrentCamera
 local a,e=app.Config.Aim,app.Config.ESP
 assert(tested:Candidate(other,camera,localRoot),'valid candidate')
 other.Team=MOCK.players.LocalPlayer.Team
+a.TeamCheck=true
 assert(not tested:Candidate(other,camera,localRoot),'team check')
 other.Neutral=true
 assert(tested:Candidate(other,camera,localRoot),'neutral target')
@@ -84,6 +85,10 @@ a.SkipFriends=false
 a.Part='UpperTorso'
 assert(tested:Candidate(other,camera,localRoot).Part.Name=='Torso','R6 fallback')
 a.Part='LeftUpperArm'
+assert(tested:Candidate(other,camera,localRoot).Part.Name=='Left Arm','R6 arm fallback')
+a.Part='LeftUpperLeg'
+assert(tested:Candidate(other,camera,localRoot).Part.Name=='Left Leg','R6 leg fallback')
+a.Part='MissingPart'
 assert(not tested:Candidate(other,camera,localRoot),'missing selected part')
 a.Part='Head'
 humanoid.Health=0; assert(not tested:Candidate(other,camera,localRoot),'dead target'); humanoid.Health=100
@@ -92,6 +97,11 @@ a.Radius=5; assert(not tested:Candidate(other,camera,localRoot),'FOV filter'); a
 workspace.Hit={Instance={IsDescendantOf=function() return false end}}
 assert(not tested:Candidate(other,camera,localRoot),'wall filter')
 a.WallCheck=false; assert(tested:Candidate(other,camera,localRoot),'wall filter off'); a.WallCheck=true; workspace.Hit=nil
+other.Character.Children.Shield=Instance.new('ForceField')
+assert(tested:Candidate(other,camera,localRoot),'spawn shield is allowed by default')
+a.SkipForceField=true
+assert(not tested:Candidate(other,camera,localRoot),'optional ForceField filter')
+a.SkipForceField=false; other.Character.Children.Shield=nil
 a.Prediction=true; a.LeadTime=0.2
 assert(math.abs(tested:Candidate(other,camera,localRoot).Position.X-11)<1e-9,'prediction')
 a.Prediction=false
@@ -106,7 +116,7 @@ assert(tested:Choose(camera,localRoot,2).Player==other2,'screen priority')
 a.Priority='Lowest health'; humanoid.Health=5
 assert(tested:Choose(camera,localRoot,3).Player==other,'health priority')
 humanoid.Health=100
-a.Enabled=true; a.Mode='Hold'; tested.held=true
+a.Enabled=true; a.Mode='Hold'; tested.held=true; a.PauseMenu=true
 tested:Aim(camera,localRoot,1/60)
 assert(not tested.target,'menu pauses aim')
 app.Library:SetOpen(false)
@@ -133,6 +143,60 @@ assert(not tested.records[other],'disabled ESP frees record')
 tested:Destroy()
 button('Reset defaults').callback()
 print('PASS chams, per-color alpha, labels, corner/full boxes, skeleton, tracers, health bars, occlusion and resource cleanup')
+-- Run the actual main engine render binding, including hardware input polling.
+local input=MOCK.services.UserInputService
+local run=MOCK.services.RunService
+local live=app.Engine
+local step=assert(run.bindings[live.renderName])
+assert(run.priorities[live.renderName]>Enum.RenderPriority.Last.Value,'apply aim after camera controllers')
+assert(not a.PauseMenu and not a.SkipScriptable,'working defaults')
+app.Library:SetOpen(true)
+a.Enabled=true
+other2.Character.Children.Head.Position=MOCK.vec(40,2,30)
+camera.CameraType=Enum.CameraType.Scriptable
+input.Down[a.Key]=true
+step(1/60)
+assert(live.target==other and camera.CFrame.LookVector.X>0,'hold polling must acquire and rotate on Scriptable camera even when menu is open')
+assert(live.Status:find('Target:',1,true),'target status')
+input.Down[a.Key]=false
+step(1/60)
+assert(not live.target and live.Status:find('hold',1,true),'polling notices release even without InputEnded')
+a.Mode='Toggle'
+input.InputBegan:Fire({KeyCode=Enum.KeyCode.Unknown,UserInputType=a.Key},true)
+step(1/60)
+assert(live.target,'gameProcessedEvent must not suppress aim outside UI')
+local originalPointer=app.Library.IsPointerOverUI
+app.Library.IsPointerOverUI=function() return true end
+step(1/60)
+assert(not live.target and live.Status:find('pointer',1,true),'settings clicks block aim')
+app.Library.IsPointerOverUI=originalPointer
+a.PauseMenu=true
+step(1/60)
+assert(not live.target and live.Status:find('menu',1,true),'explicit menu pause still works')
+a.PauseMenu=false
+local originalFocus=input.GetFocusedTextBox
+input.GetFocusedTextBox=function() return {} end
+step(1/60)
+assert(not live.target and live.Status:find('typing',1,true),'text entry blocks aim')
+input.GetFocusedTextBox=originalFocus
+workspace.Hit={Instance={IsDescendantOf=function() return false end}}
+step(1/60)
+assert(not live.target and live.Status:find('wall',1,true),'no-target wall diagnostics')
+workspace.Hit=nil
+other.Team=MOCK.players.LocalPlayer.Team; other2.Team=other.Team
+a.TeamCheck=true
+step(1/60)
+assert(not live.target and live.Status:find('team',1,true),'no-target team diagnostics')
+a.TeamCheck=false; a.Smoothing='Instant'
+step(1/60)
+assert(live.target and camera.CFrame.LastAlpha==1,'filter change and instant aiming take effect')
+a.Axis='Horizontal'
+camera.CFrame=CFrame.lookAt(camera.CFrame.Position,camera.CFrame.Position+MOCK.vec(0,0.5,1))
+local pitch=camera.CFrame.LookVector.Y
+step(1/60)
+assert(math.abs(camera.CFrame.LookVector.Y-pitch)<1e-8,'horizontal aiming preserves pitch')
+button('Reset defaults').callback()
+print('PASS live render callback: held-key polling, processed input, open menu, Scriptable camera, UI/text blocking, wall/team diagnostics and camera movement')
 for _,callback in pairs(MOCK.services.RunService.bindings) do callback(1/60) end
 app:Unload()
 for _,thread in ipairs(task.pending) do

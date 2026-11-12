@@ -1,4 +1,4 @@
--- Legit | Tokyo UI. Entry point for the README loadstring.
+-- Legit | Player Tools UI. Entry point for the README loadstring.
 local bundledFiles=...
 local BASE='https://raw.githubusercontent.com/sinmirka/Legit/main/'
 -- BEGIN HTTP TRANSPORT
@@ -9,8 +9,8 @@ local function download(path)
         return bundledFiles[path]
     end
     local bases={
-        'https://raw.githubusercontent.com/sinmirka/Legit/xeno-gui-v1/',
-        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@xeno-gui-v1/',
+        'https://raw.githubusercontent.com/sinmirka/Legit/main/',
+        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@main/',
     }
     local methods,seen={},{}
     local function add(name,callback)
@@ -55,7 +55,7 @@ end
 assert(type(loadstring)=='function','Legit needs loadstring support')
 assert(type(getgenv)=='function','Legit needs getgenv support')
 for _,name in ipairs({'makefolder','isfile','readfile','writefile'}) do
-    assert(type(getfenv()[name])=='function','Tokyo UI requires '..name)
+    assert(type(getfenv()[name])=='function','Legit profiles require '..name)
 end
 if not game:IsLoaded() then game.Loaded:Wait() end
 local env=getgenv()
@@ -79,41 +79,17 @@ local function remote(path)
     assert(chunk,'Legit compile failed: '..path..' / '..tostring(message))
     return chunk
 end
-local executor=''
-local identify=identifyexecutor or getexecutorname
-if type(identify)=='function' then local known,name=pcall(identify); if known then executor=tostring(name):lower() end end
-local renderMode=env.LegitRenderer or (executor:find('xeno',1,true) and 'GUI' or 'Native')
-assert(renderMode=='GUI' or renderMode=='Native','LegitRenderer must be GUI or Native')
-local renderer,drawingAPI=nil,Drawing
-local asset=getcustomasset or getsynasset
-if renderMode=='GUI' then
-    assert(type(asset)=='function','Legit GUI renderer requires getcustomasset for Tokyo images')
-    renderer=remote('src/GuiDrawing.lua')().new(game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui'))
-    drawingAPI=renderer
-else
-    assert(Drawing and type(Drawing.new)=='function','Tokyo UI requires Drawing or getgenv().LegitRenderer = "GUI"')
-end
-local loaded,library=pcall(function()
-    return remote('vendor/Tokyo.lua')({cheatname='Legit',gamename='Universal',fileext='.json',drawing=drawingAPI,
-        fetch=function(url)
-            assert(url:sub(1,#BASE)==BASE,'Unexpected Tokyo asset URL')
-            return download(url:sub(#BASE+1))
-        end,
-        image=function(bytes,path)
-            if not renderer then return bytes end
-            local id=asset(path)
-            assert(type(id)=='string' and #id>0,'getcustomasset did not return an image URL')
-            return id
-        end,
-    })
-end)
+local renderMode='GUI'
+local renderer=remote('src/GuiDrawing.lua')().new(game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui'))
+local drawingAPI=renderer
+local loaded,library=pcall(function() return remote('src/NativeUI.lua')().new() end)
 if not loaded then if renderer then renderer:Destroy() end; error('[Legit] '..tostring(library),0) end
 library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent},
     ESP={
-        Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=true,SkipFriends=false,
+        Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=false,SkipFriends=false,
         MaxDistance=1500,RefreshRate=30,Opacity=1,FillOpacity=0.35,OutlineOpacity=1,
         VisibleColors=false,TeamColors=false,TargetColor=true,Rainbow=false,RainbowSpeed=0.15,
         Fade=false,FadeStart=0.6,Pulse=false,PulseSpeed=1,
@@ -137,13 +113,13 @@ local config={
         Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
-        TeamCheck=true,SkipFriends=false,SkipForceField=true,WallCheck=true,MinHealth=1,
+        TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
         MaxDistance=1000,Radius=160,ShowFOV=true,FOVOpacity=0.7,FOVThickness=1,
         FOVColor=Color3.fromRGB(155,120,255),TargetColor=Color3.fromRGB(255,205,90),
         TargetLine=false,ShowDeadzone=false,Deadzone=0,
         Smoothing='Exponential',Speed=12,Axis='Both',Sticky=true,Priority='Screen',
         AcquireDelay=0,SwitchDelay=0.15,OffsetX=0,OffsetY=0,OffsetZ=0,
-        Prediction=false,LeadTime=0.1,PauseMenu=true,SkipScriptable=true,
+        Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
 local engine
@@ -157,7 +133,7 @@ function app:Unload()
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
     if engine then clean('engine',function() engine:Destroy() end) end
-    clean('Tokyo',function() library:Unload() end)
+    clean('UI',function() library:Unload() end)
     if renderer then clean('renderer',function() renderer:Destroy() end) end
 end
 env.Legit=app
@@ -165,15 +141,17 @@ local ok,message=xpcall(function()
     library:init()
     local Engine=remote('src/Engine.lua')()
     engine=Engine.new(config,library,drawingAPI)
+    app.Engine=engine
     library.unloaded:Connect(function()
         if engine then pcall(engine.Destroy,engine) end
         if renderer then renderer:Destroy() end
         app.Alive=false
         if env.Legit==app then env.Legit=nil end
     end)
-    local viewport=workspace.CurrentCamera.ViewportSize
+    local camera=workspace.CurrentCamera
+    local viewport=camera and camera.ViewportSize or Vector2.new(1280,720)
     local window=library.NewWindow({
-        title='Legit | Tokyo',size=UDim2.fromOffset(660,680),
+        title='PLAYER TOOLS',size=UDim2.fromOffset(660,620),
         position=UDim2.fromOffset(math.max(10,(viewport.X-660)/2),math.max(10,(viewport.Y-680)/2)),
     })
     local registered={}
@@ -385,7 +363,7 @@ local ok,message=xpcall(function()
     color(right,'UI accent','Interface','Accent')
     right:AddButton({text='Unload',confirm=true,callback=function() app:Unload() end})
     engine:Connect(game:GetService('UserInputService').InputBegan,function(input,processed)
-        if not processed and not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end
+        if not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end
     end)
     engine:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
