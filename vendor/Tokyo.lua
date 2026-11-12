@@ -27,6 +27,46 @@ local executor = (
     'unknown'
 )
 
+-- Local synchronous Signal; replaces the original remote loadstring dependency.
+local Signal = {}
+function Signal.new()
+    local signal = {_handlers = {}}
+    function signal:Connect(callback)
+        local connection = {Connected = true}
+        function connection:Disconnect()
+            self.Connected = false
+            signal._handlers[self] = nil
+        end
+        self._handlers[connection] = callback
+        return connection
+    end
+    function signal:Fire(...)
+        local snapshot = {}
+        for connection, callback in pairs(self._handlers) do
+            table.insert(snapshot, {connection, callback})
+        end
+        for _, item in ipairs(snapshot) do
+            if item[1].Connected then
+                local ok, message = pcall(item[2], ...)
+                if not ok then warn('[Tokyo Signal] ' .. tostring(message)) end
+            end
+        end
+    end
+    function signal:Wait()
+        local thread = coroutine.running()
+        local connection
+        connection = self:Connect(function(...)
+            connection:Disconnect()
+            task.spawn(thread, ...)
+        end)
+        return coroutine.yield()
+    end
+    function signal:Destroy()
+        for connection in pairs(self._handlers) do connection:Disconnect() end
+    end
+    return signal
+end
+
 local library = {
     windows = {};
     indicators = {};
@@ -53,13 +93,13 @@ local library = {
         ['ping'] = 0;
     };
     images = {
-        ['gradientp90'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/gradient90.png';
-        ['gradientp45'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/gradient45.png';
-        ['colorhue'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/lgbtqshit.png';
-        ['colortrans'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/trans.png';
+        ['gradientp90'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/gradient90.png';
+        ['gradientp45'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/gradient45.png';
+        ['colorhue'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/hue.png';
+        ['colortrans'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/transparency.png';
     };
     numberStrings = {['Zero'] = 0, ['One'] = 1, ['Two'] = 2, ['Three'] = 3, ['Four'] = 4, ['Five'] = 5, ['Six'] = 6, ['Seven'] = 7, ['Eight'] = 8, ['Nine'] = 9};
-    signal = loadstring(game:HttpGet('https://raw.githubusercontent.com/drillygzzly/Other/main/1414'))();
+    signal = Signal;
     open = false;
     opening = false;
     hasInit = false;
@@ -311,7 +351,7 @@ do
                 inst[prop] = val
             end)
             if not s then
-                printconsole(e, 255,0,0)
+                warn('[Tokyo] ' .. tostring(e))
             end
         end
         return inst
@@ -544,6 +584,7 @@ do
         end)
 
         function drawing:Remove()
+            if not drawing.Object then return end
             for i,v in next, self.Children do
                 v:Remove();
             end
@@ -580,15 +621,19 @@ end
 library.utility = utility
 
 function library:Unload()
-    library.unloaded:Fire();
-    for _,c in next, self.connections do
-        c:Disconnect()
+    if self.isUnloaded then return end
+    self.isUnloaded = true
+    self.open = false
+    self.unloaded:Fire()
+    actionservice:UnbindAction('FreezeMovement')
+    for _, connection in ipairs(self.connections) do connection:Disconnect() end
+    local roots = {}
+    for _, drawing in pairs(self.drawings) do
+        if not drawing.Parent then table.insert(roots, drawing) end
     end
-    for obj in next, self.drawings do
-        obj:Remove()
-    end
+    for _, drawing in ipairs(roots) do drawing:Remove() end
     table.clear(self.drawings)
-    getgenv().library = nil
+    if getgenv().library == self then getgenv().library = nil end
 end
 
 function library:init()
@@ -716,7 +761,7 @@ function library:init()
     end
 
     local screenGui = Instance.new('ScreenGui');
-    if syn then syn.protect_gui(screenGui); end
+    if syn and syn.protect_gui then syn.protect_gui(screenGui); end
     screenGui.Parent = game:GetService('CoreGui');
     screenGui.Enabled = true;
     utility:Instance('ImageButton', {
@@ -2107,7 +2152,7 @@ function library:init()
 
                     local blacklist = {'objects'};
                     for i,v in next, data do
-                        if not table.find(blacklist, i) ~= toggle[i] ~= nil then
+                        if not table.find(blacklist, i) and toggle[i] ~= nil then
                             toggle[i] = v
                         end
                     end
@@ -2774,7 +2819,7 @@ function library:init()
     
                         local blacklist = {'objects'};
                         for i,v in next, data do
-                            if not table.find(blacklist, i) ~= list[i] ~= nil then
+                            if not table.find(blacklist, i) and list[i] ~= nil then
                                 list[i] = v
                             end
                         end
@@ -4128,7 +4173,7 @@ function library:init()
 
                     utility:Connection(inputservice.InputEnded, function(inp)
                         if bind.bind ~= 'none' then
-                            if inp.KeyCode == bind.bind or inp.UserInputType == bind.key then
+                            if inp.KeyCode == bind.bind or inp.UserInputType == bind.bind then
                                 if c then
                                     c:Disconnect();
                                     if bind.flag then
@@ -4170,7 +4215,7 @@ function library:init()
 
                     local blacklist = {'objects'};
                     for i,v in next, data do
-                        if not table.find(blacklist, i) ~= list[i] ~= nil then
+                        if not table.find(blacklist, i) and list[i] ~= nil then
                             list[i] = v
                         end
                     end
