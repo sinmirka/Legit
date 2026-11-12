@@ -389,7 +389,7 @@ function Engine:Start()
         self.fov.Transparency,self.fov.Thickness=a.FOVOpacity*self:Opacity('Aim',self.target and 'TargetColor' or 'FOVColor'),a.FOVThickness
         self.fov.Visible=a.Enabled and a.ShowFOV
         self.deadzone.Position,self.deadzone.Radius=camera.ViewportSize/2,math.min(a.Deadzone,a.Radius)
-        self.deadzone.Color,self.deadzone.Transparency=a.FOVColor,a.FOVOpacity*0.5
+        self.deadzone.Color,self.deadzone.Transparency=a.FOVColor,a.FOVOpacity*0.5*self:Opacity('Aim','FOVColor')
         self.deadzone.Visible=a.Enabled and a.ShowDeadzone and a.Deadzone>0
         elapsed=elapsed+dt
         if elapsed>=1/self.config.ESP.RefreshRate then elapsed=0; self:ESP(camera,root) end
