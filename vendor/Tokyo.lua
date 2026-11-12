@@ -93,6 +93,8 @@ local library = {
         ['ping'] = 0;
     };
     images = {
+        ['saturationWhite'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/saturationWhite.png';
+        ['saturationBlack'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/saturationBlack.png';
         ['gradientp90'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/gradient90.png';
         ['gradientp45'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/gradient45.png';
         ['colorhue'] = 'https://raw.githubusercontent.com/sinmirka/Legit/main/assets/hue.png';
@@ -770,7 +772,8 @@ function library:init()
         Modal = true,
         Size = UDim2.new(1,0,1,0),
         ZIndex = 9999999999,
-        Transparency = 1;
+        BackgroundTransparency = 1;
+        ImageTransparency = 1;
     })
 
     utility:Connection(library.unloaded, function()
@@ -782,8 +785,10 @@ function library:init()
             if input.KeyCode == self.toggleKey and not library.opening and not gpe then
                 self:SetOpen(not self.open)
                 task.spawn(function()
+            if library.isUnloaded then return end
                     library.opening = true;
                     task.wait(.15);
+                    if library.isUnloaded then return end
                     library.opening = false;
                 end)
             end
@@ -994,11 +999,14 @@ function library:init()
         end
 
         task.spawn(function()
+            if library.isUnloaded then return end
             self:UpdateNotifications();
             notification.background.Size = newUDim2(0, notification.text.TextBounds.X + 20, 0, 19)
             task.wait();
+            if library.isUnloaded then return end
             utility:Tween(notification.background, 'Position', newUDim2(0,0,0, 0), .1);
             task.wait(time);
+            if library.isUnloaded then return end
             for i,v in next, notification do
                 if typeof(v) ~= 'function' then
                     utility:Tween(v, 'Transparency', 0, .15);
@@ -1473,14 +1481,14 @@ function library:init()
 
                 objs.sat1 = utility:Draw('Image', {
                     Size = newUDim2(1,0,1,0);
-                    Data = crypt.base64decode("iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLzK3wl3KAAADrElEQVR42u3TORLCMBBFwT+6/50hMqXSZgonBN0BWCDGYPwqeSWVZPWYVHd0Pc5H86v9areu4Sz9u7XZXT/vvtZtu6dtJtYw525iGya05afnWW17ltPE8fzfTZy/yf3vmCes59xf0Sf/42l3lnvGOyyH+y/bo/X689wCPCYkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEguAQgJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBILgEICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBL8lzft9AVFFzN+ywAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0Nzo1MCswMDowMIxlM90AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6NTArMDA6MDD9OIthAAAAAElFTkSuQmCC");
+                    Data = library.images.saturationWhite;
                     ZIndex = z+3;
                     Parent = objs.mainColor;
                 })
 
                 objs.sat2 = utility:Draw('Image', {
                     Size = newUDim2(1,0,1,0);
-                    Data = crypt.base64decode("iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLyBEeyyCAAAD4klEQVR42u3YwQnAQAhFQTek/5pz9eBtEYzMlBD4PDcRADDBieMjwK3HJwBDghFepx0oEhgSOO0ARQJDAqcdKBJgSGBI4I0EhgQ47cCQwJDAGwlQJDAkcNqBIgGKBIoEhgROO0CRQJFAkQBDAqcdGBI47QBFAkUCQwKnHaBIoEigSKBIgCKBIYHTDhQJUCQwJHDagSIBigSGBE47UCRAkcCQwGkHKBIoEigSGBLgtANDAkMCbyTAkMBpB4oEigQoEhgSOO1AkQBDAqcdKBIoEqBIYEjgtANFUiRQJFAkMCTAaQeKBIoEigQYEjjtQJFAkQBFAkMCpx0oEmBI4LQDRQJFAhQJDAmcdqBIgCKBIoEhAU47UCRQJFAkwJDAaQeKBIYEOO1AkUCRYHuRTAmcduC0A0UCFAkUCQwJnHaAIoEigSKBIQFOO2gvkimBIoE3EhgS4LQDRQJDAqcdoEigSKBIYEiAIYEhwXx+NoAigSGB0w5QJDAkMCQwJKDiZwMoEhgSOO0ARQJFgnlFMiVw2oHTDhQJUCRQJDAkcNoBVZFMCRQJvJHAkACnHSgSKBIoElANSZPAaQdOOzAkwGkHigSGBIYEGBK08LMBFAkUCRQJMCQwJDAkWMjPBlAkMCRw2gG5SKYEigTeSGBIgNMOFAkMCQwJMCRo4WcDKBIYEjjtgFwkUwJFAm8kMCTAaQeKBIoEigRUQ9IkcNqB0w4MCXDagSKBIsHCIpkSOO3AaQeKBCgSKBIYEhgSYEjQws8GUCQwJHDaAblIpgSKBN5IYEiA0w4UCQwJDAkwJGjhZwMoEhgSOO0ARQJDAkMCQwIqfjaAIoEigSIBhgROO5hXJFMCpx047UCRAEUCRQJDAqcdUBXJlECRwBsJDAlw2oEigSKBIgGGBIYEhgSL+dkAigSGBE47QJHAkMBpB4oEGBIYEhgSrOZnAygSKBIoEmBI4LQDRQJFAhQJDAmcdrC8SKYEigTeSGBIgNMOFAkMCZx2gCKBIoEigSEBTjtQJFAkUCTAkMBpB4oEigQoEhgSOO1AkQBDAqcdKBKgSKBIYEjgtAMUCRQJFAkMCXDagSKBIoEiAYYETjtQJFAkQJHAkMBpB4oEGBI47UCRQJEARQJDAqcdoEigSGBI4LQDFAkUCRQJFAkwJHDagSKBIQFOOzAkMCTwRgIMCZx2oEigSIAigSKBIYHTzkcARQJFAkMCnHZgSGBI4I0EGBI47UCRQJEAQwKnHSgSKBKgSGBI4LQDRQIUCRQJDAmcdoAigSGB0w5QJFAkUCQwJMBpB4oEhgROO0CRwJDAkMAbCVAkMCT4gw/reQYigE05fAAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0NzozMiswMDowMN2VK3MAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6MzIrMDA6MDCsyJPPAAAAAElFTkSuQmCC");
+                    Data = library.images.saturationBlack;
                     ZIndex = z+4;
                     Parent = objs.mainColor;
                 })
@@ -1941,8 +1949,10 @@ function library:init()
                 table.insert(objs, self.objects.background)
 
                 task.spawn(function()
+            if library.isUnloaded then return end
                     if not bool then
                         task.wait(.1);
+                        if library.isUnloaded then return end
                     end
                     self.objects.background.Visible = bool;
                 end)
@@ -1950,6 +1960,7 @@ function library:init()
                 for _,v in next, objs do
                     if v.Object.Transparency ~= 0 then
                         task.spawn(function()
+            if library.isUnloaded then return end
                             if bool then
                                 utility:Tween(v.Object, 'Transparency', visValues[v] or 1, .1);
                             else
@@ -2374,7 +2385,7 @@ function library:init()
     
                         function color:SetColor(c3, nocallback)
                             if typeof(c3) == 'Color3' then
-                                local h,s,v = c3:ToHSV(); c3 = fromhsv(h, clamp(s,.005,.995), clamp(v,.005,.995))
+                                -- Preserve exact RGB, including pure black and white.
                                 self.color = c3;
                                 self.objects.background.Color = c3;
                                 if not nocallback then
@@ -2391,7 +2402,7 @@ function library:init()
     
                         function color:SetTrans(trans, nocallback)
                             if typeof(trans) == 'number' then
-                                self.trans = trans;
+                                trans = clamp(trans, 0, 1); self.trans = trans;
                                 if not nocallback then
                                     self.callback(self.color, trans);
                                 end
@@ -3340,7 +3351,8 @@ function library:init()
                             objs.background.ThemeColor = 'Accent';
                             objs.background.ThemeColorOffset = -95;
 
-                            task.spawn(function() -- this is ugly and i do not care :)
+                            task.spawn(function()
+            if library.isUnloaded then return end -- this is ugly and i do not care :)
                                 if button.confirm then
                                     if clicked then
                                         clicked = false
@@ -3355,7 +3367,8 @@ function library:init()
                                                 break
                                             end
                                             objs.text.Text = 'Confirm '..button.text..'? '..tostring(i)
-                                            wait(1)
+                                            task.wait(1);
+                                            if library.isUnloaded then return end
                                         end
                                         clicked = false
                                         counting = false
@@ -3475,7 +3488,8 @@ function library:init()
                                 objs.background.ThemeColor = 'Accent';
                                 objs.background.ThemeColorOffset = -95;
     
-                                task.spawn(function() -- this is ugly and i do not care :)
+                                task.spawn(function()
+            if library.isUnloaded then return end -- this is ugly and i do not care :)
                                     if button.confirm then
                                         if clicked then
                                             clicked = false
@@ -3490,7 +3504,8 @@ function library:init()
                                                     break
                                                 end
                                                 objs.text.Text = 'Confirm '..button.text..'? '..tostring(i)
-                                                wait(1)
+                                                task.wait(1);
+                                                if library.isUnloaded then return end
                                             end
                                             clicked = false
                                             counting = false
@@ -3744,7 +3759,7 @@ function library:init()
 
                     function color:SetColor(c3, nocallback)
                         if typeof(c3) == 'Color3' then
-                            local h,s,v = c3:ToHSV(); c3 = fromhsv(h, clamp(s,.005,.995), clamp(v,.005,.995));
+                            -- Preserve exact RGB, including pure black and white.;
                             self.color = c3;
                             self.objects.background.Color = c3;
                             if not nocallback then
@@ -3761,7 +3776,7 @@ function library:init()
 
                     function color:SetTrans(trans, nocallback)
                         if typeof(trans) == 'number' then
-                            self.trans = trans;
+                            trans = clamp(trans, 0, 1); self.trans = trans;
                             if not nocallback then
                                 self.callback(self.color, trans);
                             end
