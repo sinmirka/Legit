@@ -31,6 +31,13 @@ assert(app.Config.ESP.Enabled and math.abs(app.Config.Alpha.Colors_Fill-0.75)<1e
 button('Reset defaults').callback()
 assert(not app.Config.ESP.Enabled and app.Config.Alpha.Colors_Fill==1,'defaults')
 print('PASS profile save/load including color alpha and reset')
+option('Aim_Key'):SetBind(Enum.KeyCode.Backspace)
+assert(app.Config.Aim.Key=='none','clear aim bind')
+button('Save profile').callback()
+option('Aim_Key'):SetBind(Enum.UserInputType.MouseButton2)
+button('Load profile').callback()
+assert(app.Config.Aim.Key=='none','unbound profile roundtrip')
+button('Reset defaults').callback()
 local Http=MOCK.services.HttpService
 MOCK.files['Legit/Universal/configs/default.json']=Http:JSONEncode({version=1,settings={ESP_Enabled=true,Aim_Radius='invalid'}})
 button('Load profile').callback()

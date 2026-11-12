@@ -229,7 +229,7 @@ local ok,message=xpcall(function()
         for _,entry in ipairs(registered) do
             local value=config[entry.Group][entry.Key]
             if entry.Kind=='color' then value={value.R,value.G,value.B,config.Alpha[flag(entry.Group,entry.Key)] or 1} end
-            if entry.Kind=='bind' then value=value.Name end
+            if entry.Kind=='bind' then value=typeof(value)=='EnumItem' and value.Name or 'none' end
             data.settings[flag(entry.Group,entry.Key)]=value
         end
         writefile(profilePath(),game:GetService('HttpService'):JSONEncode(data))
@@ -245,6 +245,7 @@ local ok,message=xpcall(function()
             entry.Option:SetTrans(1-(value[4] or 1))
         elseif entry.Kind=='bind' then
             assert(type(value)=='string')
+            if value=='none' then entry.Option:SetBind(Enum.KeyCode.Backspace); return end
             local enum
             local success=pcall(function() enum=Enum.KeyCode[value] end)
             if not success or not enum then pcall(function() enum=Enum.UserInputType[value] end) end
