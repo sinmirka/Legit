@@ -182,6 +182,8 @@ function Engine:NewRecord(other, character)
     record.HealthBar = add('Square', {Filled=true, ZIndex=6})
     record.TopText = add('Text', {Center=true, Outline=true, ZIndex=7})
     record.BottomText = add('Text', {Center=true, Outline=true, ZIndex=7})
+    record.TopTextBorder = add('Text', {Center=true, Outline=true, ZIndex=6})
+    record.BottomTextBorder = add('Text', {Center=true, Outline=true, ZIndex=6})
     for i=1,#skeleton do record.Bones[i] = add('Line', {ZIndex=6}) end
     self.records[other] = record
     return record
@@ -296,7 +298,7 @@ function Engine:DrawOverlay(record, other, character, humanoid, root, camera, di
         if l.Team then table.insert(bottom,other.Team and other.Team.Name or 'Neutral') end
         local labels = {record.TopText,record.BottomText}
         for _, label in ipairs(labels) do
-            label.Size,label.Font,label.Outline = l.Size,({UI=0,System=1,Plex=2,Monospace=3})[l.Font],l.TextOutline
+            label.Size,label.Font,label.Outline = l.Size,({UI=0,System=1,Plex=2,Monospace=3})[l.Font],false
             label.Color,label.OutlineColor = self.config.Colors.Text,self.config.Colors.TextOutline
             label.Transparency = opacity*l.Opacity*self:Opacity('Colors','Text')
         end
@@ -306,6 +308,13 @@ function Engine:DrawOverlay(record, other, character, humanoid, root, camera, di
         record.BottomText.Text = table.concat(bottom,'\n')
         record.BottomText.Position = bottomCenter+Vector2.new(0,4+l.Offset)
         record.BottomText.Visible = #bottom>0
+        for index,border in ipairs({record.TopTextBorder,record.BottomTextBorder}) do
+            local label=labels[index]
+            border.Text,border.Position,border.Size,border.Font=label.Text,label.Position,label.Size,label.Font
+            border.Color,border.OutlineColor=self.config.Colors.TextOutline,self.config.Colors.TextOutline
+            border.Transparency=opacity*l.Opacity*self:Opacity('Colors','TextOutline')
+            border.Visible=label.Visible and l.TextOutline
+        end
     end
 end
 function Engine:ESP(camera, localRoot)
