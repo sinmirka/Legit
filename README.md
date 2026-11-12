@@ -7,8 +7,8 @@ ESP и наведение камеры с интерфейсом на **Tokyo Li
 ```lua
 local req = request or http_request or (syn and syn.request) or (http and http.request)
 for _, url in ipairs({
-    "https://raw.githubusercontent.com/sinmirka/Legit/main/main.lua",
-    "https://cdn.jsdelivr.net/gh/sinmirka/Legit@main/main.lua",
+    "https://raw.githubusercontent.com/sinmirka/Legit/xeno-gui-v1/main.lua",
+    "https://cdn.jsdelivr.net/gh/sinmirka/Legit@xeno-gui-v1/main.lua",
 }) do
     for _, get in ipairs({
         function() return req and req({Url = url, Method = "GET", Timeout = 15}) end,
@@ -31,9 +31,19 @@ error("[Legit] Download failed via HTTP API and HttpGet. Paste the complete load
 
 Альтернатива: скачай [loader.lua](loader.lua) и вставь **весь файл** в executor. Этот вариант начинает загрузку самостоятельно и выводит подробную ошибку, если ни один HTTP-метод не сработал. Сетевой доступ всё равно необходим для модулей и изображений.
 
-Запуск через executor с поддержкой **Drawing API**, `loadstring`, `getgenv`, хотя бы одного HTTP-метода (`request`, `http_request`, `syn.request`, `http.request` или `game:HttpGet`) и файловых функций `makefolder`, `isfile`, `readfile`, `writefile`. Обычный LocalScript в Studio для этой версии не подходит. Если отсутствует нужная функция, загрузчик укажет её название.
+Запуск через executor с поддержкой `loadstring`, `getgenv`, хотя бы одного HTTP-метода (`request`, `http_request`, `syn.request`, `http.request` или `game:HttpGet`) и файловых функций `makefolder`, `isfile`, `readfile`, `writefile`. Для Native-режима нужен Drawing API; для GUI-режима — `getcustomasset` или `getsynasset`. Обычный LocalScript в Studio для этой версии не подходит. Если отсутствует нужная функция, загрузчик укажет её название.
 
 Скрипт загружает Tokyo Lib, модуль логики и изображения из этого репозитория, напрямую с GitHub или через jsDelivr. Код Signal встроен в библиотеку; зависимости от удалённого Signal и `crypt.base64decode` удалены. Повреждённый кеш изображений заменяется после проверки PNG. При повторном запуске предыдущая копия выгружается.
+
+### Xeno
+
+Скачай [loader-xeno.lua](loader-xeno.lua), вставь **его содержимое целиком** в редактор Xeno и выполни. Этот загрузчик принудительно выбирает GUI-режим. Обычный загрузчик также выбирает его автоматически, когда executor представляется как Xeno.
+
+Tokyo Lib продолжает создавать вкладки и настройки; её Drawing-объекты преобразуются в стандартные Roblox GUI-элементы. Интерфейс и ESP в этом режиме не вызывают native `Drawing.new` / `Remove` Xeno. PNG регистрируются через `getcustomasset`. Выбор режима можно задать перед запуском: `getgenv().LegitRenderer = "GUI"` или `"Native"`.
+
+Релиз закреплён тегом **xeno-gui-v1**: загрузчик, Tokyo, модуль ESP и GUI-рендерер скачиваются из одной версии, в том числе при переключении на CDN. Для будущих релизов обновляй стартовый блок / файл загрузчика.
+
+Очистка больше не должна скрывать первоначальную ошибку запуска: ошибки выгрузки сообщаются отдельно. Если на экране остаются объекты от старой аварийной версии, переподключись к игре один раз и выполни новый загрузчик.
 
 ## Управление
 
@@ -89,7 +99,7 @@ Check walls проверяет путь до выбранной части те�
 python tests/run.py --luau /path/to/luau
 ```
 
-Проверены запуск, все вкладки, callbacks настроек и цветов, прозрачность, сохранение / загрузка / сброс профилей, пустая привязка клавиши, некорректные профили, фильтры целей, R6, FOV, стены, задержки, prediction, Chams, рамки, скелет, HP, подписи, выгрузка и повторный запуск.
+Проверены запуск, все вкладки, callbacks настроек и цветов, прозрачность, сохранение / загрузка / сброс профилей, пустая привязка клавиши, некорректные профили, фильтры целей, R6, FOV, стены, задержки, prediction, Chams, рамки, скелет, HP, подписи, выгрузка и повторный запуск. Отдельный набор имитирует Xeno с неисправным native Drawing: настоящая Tokyo запускается через GUI-рендерер без вызовов native Drawing; проверяется также сохранение первоначальной ошибки при сбое Remove.
 
 Это проверка логики с заглушками. Визуальный запуск в Roblox и совместимость с конкретным executor в этой среде не проверялись. Пользовательские персонажи, собственные системы команд / здоровья и другие скрипты камеры могут требовать адаптации. Персонажи, не загруженные на клиент из-за StreamingEnabled, недоступны для ESP и наведения.
 
@@ -97,7 +107,9 @@ python tests/run.py --luau /path/to/luau
 
 - `main.lua` — загрузчик, настройки, интерфейс Tokyo и профили.
 - `loader.lua` — самостоятельный стартовый загрузчик; пересоздаётся командой `python tools/build_loader.py` после изменения HTTP-транспорта.
+- `loader-xeno.lua` — тот же загрузчик с принудительным GUI-режимом.
 - `src/Engine.lua` — ESP, выбор целей, управление камерой и очистка.
+- `src/GuiDrawing.lua` — совместимый с интерфейсом Drawing рендерер на Roblox GUI для Xeno.
 - `vendor/Tokyo.lua` — предоставленная пользователем Tokyo Lib с локальными исправлениями.
 - `assets/` — ресурсы библиотеки, перенесённые в этот репозиторий.
 - `tests/` — проверки без запуска Roblox.

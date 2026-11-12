@@ -14,11 +14,18 @@ local skeleton = {
     {'LowerTorso','RightUpperLeg'}, {'RightUpperLeg','RightLowerLeg'}, {'RightLowerLeg','RightFoot'},
     {'Head','Torso'}, {'Torso','Left Arm'}, {'Torso','Right Arm'}, {'Torso','Left Leg'}, {'Torso','Right Leg'},
 }
-local function drawing(class, props)
-    local object = Drawing.new(class)
+local function drawing(factory, class, props)
+    local object = factory.new(class)
     object.Visible = false
     for key, value in pairs(props or {}) do object[key] = value end
     return object
+end
+local function removeDrawing(object)
+    local removed=pcall(function() object:Remove() end)
+    if not removed then
+        removed=pcall(function() object:Destroy() end)
+        if not removed then pcall(function() object.Visible=false end) end
+    end
 end
 local function characterOf(player)
     local character = player.Character
@@ -35,9 +42,10 @@ local function point(camera, position)
     local p, onScreen = camera:WorldToViewportPoint(position)
     return Vector2.new(p.X, p.Y), onScreen and p.Z > 0
 end
-function Engine.new(config, library)
+function Engine.new(config, library, renderer)
     local self = setmetatable({}, Engine)
     self.config, self.library = config, library
+    self.Drawing=renderer or Drawing
     self.player = Players.LocalPlayer
     self.records, self.connections, self.friends = {}, {}, {}
     self.held, self.toggled, self.focused = false, false, true
@@ -50,9 +58,9 @@ function Engine.new(config, library)
     self.folder = Instance.new('Folder')
     self.folder.Name = self.renderName
     self.folder.Parent = workspace
-    self.fov = drawing('Circle', {Filled=false, NumSides=96, Thickness=1, ZIndex=30})
-    self.deadzone = drawing('Circle', {Filled=false, NumSides=64, Thickness=1, ZIndex=30})
-    self.aimLine = drawing('Line', {Thickness=1, ZIndex=30})
+    self.fov = drawing(self.Drawing, 'Circle', {Filled=false, NumSides=96, Thickness=1, ZIndex=30})
+    self.deadzone = drawing(self.Drawing, 'Circle', {Filled=false, NumSides=64, Thickness=1, ZIndex=30})
+    self.aimLine = drawing(self.Drawing, 'Line', {Thickness=1, ZIndex=30})
     return self
 end
 function Engine:Connect(signal, callback)
@@ -165,7 +173,7 @@ function Engine:NewRecord(other, character)
     record.Highlight.Name, record.Highlight.Adornee = 'LegitHighlight', character
     record.Highlight.Parent = self.folder
     local function add(class, props)
-        local object = drawing(class, props)
+        local object = drawing(self.Drawing, class, props)
         table.insert(record.Drawings, object)
         return object
     end
@@ -191,7 +199,7 @@ end
 function Engine:RemoveRecord(other)
     local record = self.records[other]
     if not record then return end
-    for _, object in ipairs(record.Drawings) do object:Remove() end
+    for _, object in ipairs(record.Drawings) do removeDrawing(object) end
     record.Highlight:Destroy()
     self.records[other] = nil
 end
@@ -403,6 +411,6 @@ function Engine:Destroy()
     local players={}
     for other in pairs(self.records) do table.insert(players,other) end
     for _,other in ipairs(players) do self:RemoveRecord(other) end
-    self.fov:Remove(); self.deadzone:Remove(); self.aimLine:Remove(); self.folder:Destroy()
+    removeDrawing(self.fov); removeDrawing(self.deadzone); removeDrawing(self.aimLine); self.folder:Destroy()
 end
 return Engine

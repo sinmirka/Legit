@@ -4,8 +4,8 @@ local BASE='https://raw.githubusercontent.com/sinmirka/Legit/main/'
 -- Used by main.lua and the standalone loader.lua; never compile an unchecked body.
 local function download(path)
     local bases={
-        'https://raw.githubusercontent.com/sinmirka/Legit/main/',
-        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@main/',
+        'https://raw.githubusercontent.com/sinmirka/Legit/xeno-gui-v1/',
+        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@xeno-gui-v1/',
     }
     local methods,seen={},{}
     local function add(name,callback)
@@ -49,23 +49,60 @@ end
 -- END HTTP TRANSPORT
 assert(type(loadstring)=='function','Legit needs loadstring support')
 assert(type(getgenv)=='function','Legit needs getgenv support')
-assert(Drawing and type(Drawing.new)=='function','Tokyo UI requires the Drawing API')
 for _,name in ipairs({'makefolder','isfile','readfile','writefile'}) do
     assert(type(getfenv()[name])=='function','Tokyo UI requires '..name)
 end
 if not game:IsLoaded() then game.Loaded:Wait() end
 local env=getgenv()
-if env.Legit and env.Legit.Unload then env.Legit:Unload() end
+if env.Legit and env.Legit.Unload then
+    local previous=env.Legit
+    if previous.Library and previous.Library.drawings then
+        for object in pairs(previous.Library.drawings) do pcall(function() object.Visible=false end) end
+    end
+    local cleaned,problem=pcall(previous.Unload,previous)
+    if not cleaned then
+        warn('[Legit] Previous version cleanup: '..tostring(problem))
+        if previous.Library and previous.Library.drawings then
+            for object in pairs(previous.Library.drawings) do pcall(function() object.Visible=false end) end
+        end
+    end
+    env.Legit=nil
+end
 local function remote(path)
     local source=download(path)
     local chunk,message=loadstring(source,'@Legit/'..path)
     assert(chunk,'Legit compile failed: '..path..' / '..tostring(message))
     return chunk
 end
-local library=remote('vendor/Tokyo.lua')({cheatname='Legit',gamename='Universal',fileext='.json',fetch=function(url)
-    assert(url:sub(1,#BASE)==BASE,'Unexpected Tokyo asset URL')
-    return download(url:sub(#BASE+1))
-end})
+local executor=''
+local identify=identifyexecutor or getexecutorname
+if type(identify)=='function' then local known,name=pcall(identify); if known then executor=tostring(name):lower() end end
+local renderMode=env.LegitRenderer or (executor:find('xeno',1,true) and 'GUI' or 'Native')
+assert(renderMode=='GUI' or renderMode=='Native','LegitRenderer must be GUI or Native')
+local renderer,drawingAPI=nil,Drawing
+local asset=getcustomasset or getsynasset
+if renderMode=='GUI' then
+    assert(type(asset)=='function','Legit GUI renderer requires getcustomasset for Tokyo images')
+    renderer=remote('src/GuiDrawing.lua')().new(game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui'))
+    drawingAPI=renderer
+else
+    assert(Drawing and type(Drawing.new)=='function','Tokyo UI requires Drawing or getgenv().LegitRenderer = "GUI"')
+end
+local loaded,library=pcall(function()
+    return remote('vendor/Tokyo.lua')({cheatname='Legit',gamename='Universal',fileext='.json',drawing=drawingAPI,
+        fetch=function(url)
+            assert(url:sub(1,#BASE)==BASE,'Unexpected Tokyo asset URL')
+            return download(url:sub(#BASE+1))
+        end,
+        image=function(bytes,path)
+            if not renderer then return bytes end
+            local id=asset(path)
+            assert(type(id)=='string' and #id>0,'getcustomasset did not return an image URL')
+            return id
+        end,
+    })
+end)
+if not loaded then if renderer then renderer:Destroy() end; error('[Legit] '..tostring(library),0) end
 library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={
@@ -105,21 +142,27 @@ local config={
     },
 }
 local engine
-local app={Library=library,Config=config,Alive=true}
+local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:Unload()
     if not self.Alive then return end
     self.Alive=false
-    if engine then engine:Destroy() end
-    library:Unload()
     if env.Legit==self then env.Legit=nil end
+    local function clean(label,callback)
+        local success,problem=pcall(callback)
+        if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
+    end
+    if engine then clean('engine',function() engine:Destroy() end) end
+    clean('Tokyo',function() library:Unload() end)
+    if renderer then clean('renderer',function() renderer:Destroy() end) end
 end
 env.Legit=app
 local ok,message=xpcall(function()
     library:init()
     local Engine=remote('src/Engine.lua')()
-    engine=Engine.new(config,library)
+    engine=Engine.new(config,library,drawingAPI)
     library.unloaded:Connect(function()
-        if engine then engine:Destroy() end
+        if engine then pcall(engine.Destroy,engine) end
+        if renderer then renderer:Destroy() end
         app.Alive=false
         if env.Legit==app then env.Legit=nil end
     end)
@@ -340,7 +383,7 @@ local ok,message=xpcall(function()
         if not processed and not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end
     end)
     engine:Start()
-    library:SendNotification('Legit loaded | RightShift: menu | END: unload',5)
+    library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end
 return app

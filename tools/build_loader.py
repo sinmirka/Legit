@@ -14,3 +14,5 @@ assert(chunk,'Legit main compile failed: '..tostring(message))
 return chunk()
 '''
 (root / 'loader.lua').write_text(loader, encoding='utf-8', newline='\n')
+xeno = loader.replace("local source=download('main.lua')", "assert(type(getgenv)=='function','Legit needs getgenv support')\ngetgenv().LegitRenderer='GUI'\nlocal source=download('main.lua')")
+(root / 'loader-xeno.lua').write_text(xeno, encoding='utf-8', newline='\n')

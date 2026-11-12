@@ -53,6 +53,7 @@ udim.__add=function(a,b) return dim(a.X.Scale+b.X.Scale,a.X.Offset+b.X.Offset,a.
 udim.__sub=function(a,b) return dim(a.X.Scale-b.X.Scale,a.X.Offset-b.X.Offset,a.Y.Scale-b.Y.Scale,a.Y.Offset-b.Y.Offset) end
 udim.__mul=function(a,b) return dim(a.X.Scale*b,a.X.Offset*b,a.Y.Scale*b,a.Y.Offset*b) end
 UDim2={new=dim,fromOffset=function(x,y) return dim(0,x,0,y) end}
+UDim={new=function(scale,offset) return {Scale=scale,Offset=offset} end}
 local color={}; color.__index=color
 local function rgb(r,g,b) return setmetatable({R=r,G=g,B=b,r=r,g=g,b=b,__type='Color3'},color) end
 function color:Lerp(b,t) return rgb(self.R+(b.R-self.R)*t,self.G+(b.G-self.G)*t,self.B+(b.B-self.B)*t) end
@@ -91,11 +92,18 @@ Drawing={new=function(class)
 end}
 local services={}
 local player={UserId=1,Name='Local',Neutral=false,Team={},Children={}}
+player.PlayerGui=Instance.new('PlayerGui')
+function player:WaitForChild(name) return assert(self[name],name) end
 function player:IsFriendsWith() return false end
 local players={LocalPlayer=player,PlayerAdded=signal(),PlayerRemoving=signal(),list={player}}
 player.Parent=players
 function players:GetPlayers() return self.list end
 services.Players=players
+services.TextService={GetTextSize=function(_,value,size)
+    local maxWidth,lines=0,0
+    for line in (value..'\n'):gmatch('(.-)\n') do maxWidth=math.max(maxWidth,#line*size*0.5); lines+=1 end
+    return vec(maxWidth,size*math.max(1,lines))
+end}
 services.RunService={RenderStepped=signal(),bindings={}}
 function services.RunService:BindToRenderStep(name,_,callback) self.bindings[name]=callback end
 function services.RunService:UnbindFromRenderStep(name) self.bindings[name]=nil end
@@ -123,7 +131,7 @@ game={Loaded=signal()}
 function game:IsLoaded() return true end
 function game:GetService(name) assert(services[name],name); return services[name] end
 function game:HttpGet(url)
-    local path=url:match('sinmirka/Legit/main/(.+)') or url:match('sinmirka/Legit@main/(.+)')
+    local path=url:match('sinmirka/Legit/[^/]+/(.+)') or url:match('sinmirka/Legit@[^/]+/(.+)')
     assert(path,'Unexpected external download: '..url)
     if path:match('^assets/') then return '\137PNG\r\n\26\nPNG' end
     assert(SOURCES[path],'Missing remote module '..path)

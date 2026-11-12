@@ -1,7 +1,11 @@
 local startupArgs = ({...})[1] or {}
 
 if getgenv().library ~= nil then
-    getgenv().library:Unload();
+    local previous = getgenv().library
+    for object in pairs(previous.drawings or {}) do pcall(function() object.Visible=false end) end
+    local ok, message = pcall(previous.Unload, previous)
+    if not ok then warn('[Tokyo] Previous UI cleanup: '..tostring(message)) end
+    getgenv().library = nil
 end
 
 if not game:IsLoaded() then
@@ -473,7 +477,7 @@ do
     function utility:Draw(class, properties)
         local blacklistedProperties = {'Object','Children','Class'}
         local drawing = {
-            Object = Drawing.new(class);
+            Object = (startupArgs.drawing or Drawing).new(class);
             Children = {};
             ThemeColor = '';
             OutlineThemeColor = '';
@@ -596,7 +600,12 @@ do
             end
 
             library.drawings[drawing.Object] = nil;
-            drawing.Object:Remove();
+            local object = drawing.Object
+            local ok = pcall(function() object:Remove() end)
+            if not ok then
+                ok = pcall(function() object:Destroy() end)
+                if not ok then pcall(function() object.Visible = false end) end
+            end
             table.clear(drawing);
 
         end
@@ -747,7 +756,7 @@ function library:init()
             assert(type(image) == 'string' and image:sub(1,8) == '\137PNG\r\n\26\n', 'Tokyo image download failed: '..i)
             writefile(path, image)
         end
-        self.images[i] = image;
+        self.images[i] = startupArgs.image and startupArgs.image(image,path) or image;
     end
 
     self.cursor1 = utility:Draw('Triangle', {Filled = true, Color = fromrgb(255,255,255), ZIndex = self.zindexOrder.cursor});

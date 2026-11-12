@@ -3,8 +3,8 @@
 -- Used by main.lua and the standalone loader.lua; never compile an unchecked body.
 local function download(path)
     local bases={
-        'https://raw.githubusercontent.com/sinmirka/Legit/main/',
-        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@main/',
+        'https://raw.githubusercontent.com/sinmirka/Legit/xeno-gui-v1/',
+        'https://cdn.jsdelivr.net/gh/sinmirka/Legit@xeno-gui-v1/',
     }
     local methods,seen={},{}
     local function add(name,callback)
