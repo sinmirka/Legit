@@ -2,6 +2,10 @@
 -- BEGIN HTTP TRANSPORT
 -- Used by main.lua and the standalone loader.lua; never compile an unchecked body.
 local function download(path)
+    if type(bundledFiles)=='table' then
+        assert(type(bundledFiles[path])=='string','[Legit bundle] Missing embedded file: '..path)
+        return bundledFiles[path]
+    end
     local bases={
         'https://raw.githubusercontent.com/sinmirka/Legit/xeno-gui-v1/',
         'https://cdn.jsdelivr.net/gh/sinmirka/Legit@xeno-gui-v1/',

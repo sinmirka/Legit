@@ -44,14 +44,6 @@ end
 app=assert(loadstring(SOURCES['loader.lua']))()
 assert(app.Alive,'standalone CDN fallback without request API')
 app:Unload()
-game.HttpGet=function() return nil end
-request=function(options) return {StatusCode=200,Body=originalGet(game,options.Url)} end
-app=assert(loadstring(SOURCES.README_BOOTSTRAP))()
-assert(app.Alive,'README launcher with nil HttpGet')
-app:Unload()
-request=function() return {StatusCode=503,Body=SOURCES['main.lua']} end
-local launched,reason=pcall(assert(loadstring(SOURCES.README_BOOTSTRAP)))
-assert(not launched and tostring(reason):find('[Legit] Download failed',1,true),'README rejects HTTP errors')
 assert(nilCompiles==0,'nil was passed to loadstring')
 for _,object in ipairs(DRAWINGS) do assert(object.Removed,'download failure leaked Drawing') end
-print('PASS nil/empty/HTML responses, status codes, request aliases, CDN fallback, PNG repair, standalone and README bootstraps; zero nil compiler calls')
+print('PASS nil/empty/HTML responses, status codes, request aliases, CDN fallback, PNG repair and legacy standalone loader; zero nil compiler calls')
