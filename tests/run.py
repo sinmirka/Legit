@@ -7,8 +7,12 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--luau', default='luau')
+parser.add_argument('--compiler', help='Optional luau-compile path; compiles the real vendored UI too')
 args = parser.parse_args()
 sources = ['vendor/Obsidian/Lucide.lua', 'vendor/Obsidian/Library.lua', 'src/ObsidianUI.lua', 'src/Engine.lua', 'src/GuiDrawing.lua', 'src/MeleeAura.lua', 'src/UniversalTools.lua', 'main.lua', 'loader.lua', 'loader-xeno.lua', 'Legit.lua']
+if args.compiler:
+    subprocess.run([args.compiler, '--null', *(str(root / name) for name in sources)], check=True)
+    print(f'PASS compilation of {len(sources)} runtime files, including actual Obsidian and Lucide', flush=True)
 main = (root / 'main.lua').read_text(encoding='utf-8')
 transport = main[main.index('-- BEGIN HTTP TRANSPORT'):main.index('-- END HTTP TRANSPORT')]
 assert transport in (root / 'loader.lua').read_text(encoding='utf-8'), 'Rebuild loader.lua with tools/build_loader.py'
