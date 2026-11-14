@@ -92,6 +92,7 @@ library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
+    Debug={Enabled=false,Console=false,CaptureRays=false},
     Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
@@ -134,12 +135,21 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,tools
+local engine,melee,tools,logger
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
+function app:DebugContext()
+    local data={AimStatus=engine and engine.Status or 'not started',MeleeStatus=melee and melee.Status or 'not started',
+        MeleeEnabled=config.Melee.Enabled,AutoAttack=config.Melee.AutoAttack,Range=config.Melee.Range,
+        Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,
+        EquippedTool=melee and melee.tool and melee.tool.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
+    if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
+    return data
+end
 function app:Unload()
     if not self.Alive then return end
     self.Alive=false
     if env.Legit==self then env.Legit=nil end
+    if logger then logger:Write('info','App','unload','Unloading Legit') end
     local function clean(label,callback)
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
@@ -153,8 +163,11 @@ end
 env.Legit=app
 local ok,message=xpcall(function()
     library:init()
+    logger=remote('src/Diagnostics.lua')().new(config.Debug)
+    app.Logger=logger
     local Engine=remote('src/Engine.lua')()
     engine=Engine.new(config,library,drawingAPI)
+    engine.Logger=logger
     app.Engine=engine
     melee=remote('src/MeleeAura.lua')().new(config.Melee,engine,library)
     app.MeleeAura=melee
@@ -519,6 +532,34 @@ local ok,message=xpcall(function()
         library.StatusLabel:SetVisible(library.showStatus)
     end})
     right:AddButton({text='Unload',confirm=true,callback=function() app:Unload() end})
+    left,right=sections('UI Settings','Debugging','Melee diagnostics')
+    local debugEnabled=toggle(left,'Enable diagnostic logs','Debug','Enabled')
+    toggle(left,'Echo logs to console','Debug','Console')
+    local traceRays=toggle(left,'Trace nearby melee rays','Debug','CaptureRays')
+    left:AddButton({text='Copy debug report',callback=function() action(function()
+        assert(type(setclipboard)=='function','Executor does not support clipboard')
+        setclipboard(logger:Report(app:DebugContext()))
+        library:SendNotification('Debug report copied',4)
+    end) end})
+    left:AddButton({text='Save debug report',callback=function() action(function()
+        local path=logger:Save(app:DebugContext())
+        library:SendNotification('Saved: '..path,5)
+    end) end})
+    local function clearDiagnostics()
+        logger:Clear(); melee.Counters={}; melee.lastSummary=0
+    end
+    left:AddButton({text='Clear debug log',callback=clearDiagnostics})
+    right:AddButton({text='Start melee capture',callback=function()
+        clearDiagnostics(); debugEnabled:SetState(true); traceRays:SetState(true)
+        logger:Write('info','Melee','capture','Capture started',app:DebugContext())
+        library:SendNotification('Capture started. Enable melee, close menu and try several swings, then save the report.',7)
+    end})
+    right:AddButton({text='Stop debug capture',callback=function()
+        logger:Write('info','Melee','capture','Capture stopped',app:DebugContext())
+        traceRays:SetState(false); debugEnabled:SetState(false)
+    end})
+    right:AddText({text='Keeps up to 400 entries in memory. File export is manual.'})
+    right:AddText({text='Client hits do not confirm server damage.'})
     engine:Connect(game:GetService('UserInputService').InputBegan,function(input,processed)
         if not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end
     end)

@@ -23,34 +23,52 @@ local function finite(vector)
 end
 function MeleeAura.new(config,engine,library)
     local self=setmetatable({config=config,engine=engine,library=library,alive=true,
-        nextAttack=0,swingUntil=0,Status='Disabled'},MeleeAura)
+        nextAttack=0,swingUntil=0,Status='Disabled',Counters={},lastSummary=0,logger=engine.Logger},MeleeAura)
     self.ray=RaycastParams.new()
     self.ray.FilterType=Enum.RaycastFilterType.Exclude
     self.ray.IgnoreWater=true
     return self
 end
+function MeleeAura:Count(reason)
+    if self.logger and self.logger.settings.Enabled then self.Counters[reason]=(self.Counters[reason] or 0)+1 end
+end
+function MeleeAura:Log(level,event,message,data,interval)
+    if self.logger then self.logger:Write(level,'Melee',event,message,data,interval) end
+end
+function MeleeAura:StatusTo(value)
+    self.Status=value
+    if self.logger then self.logger:State('Melee','status',value) end
+end
+function MeleeAura:BlockReason()
+    if not self.alive then return 'unloaded' end
+    if not self.config.Enabled then return 'disabled' end
+    if not self.engine.focused then return 'unfocused' end
+    if Input:GetFocusedTextBox() then return 'typing' end
+    if self.library:IsInteracting() then return 'UI interaction' end
+    if self.config.PauseMenu and self.library.open then return 'menu open' end
+end
 function MeleeAura:Reset()
     self.target,self.swingUntil=nil,0
 end
 function MeleeAura:Blocked()
-    return not self.alive or not self.config.Enabled or not self.engine.focused
-        or Input:GetFocusedTextBox()~=nil or self.library:IsInteracting()
-        or (self.config.PauseMenu and self.library.open)
+    return self:BlockReason()~=nil
 end
 function MeleeAura:Candidate(player,root)
     local s=self.config
-    if not self.engine:Allowed(player,s) then return end
+    if player==Players.LocalPlayer then return nil,'self' end
+    if not self.engine:Allowed(player,s) then return nil,'team/friend/priority' end
     local character,humanoid,targetRoot=rig(player)
-    if not character or humanoid.Health<s.MinHealth then return end
-    if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return end
+    if not character then return nil,'rig/dead' end
+    if humanoid.Health<s.MinHealth then return nil,'minimum HP' end
+    if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return nil,'ForceField' end
     local part=character:FindFirstChild(s.Part)
     if not part and s.Part=='UpperTorso' then part=character:FindFirstChild('Torso') end
-    if not part or not part:IsA('BasePart') then return end
+    if not part or not part:IsA('BasePart') then return nil,'body part' end
     local delta=part.Position-root.Position
-    if delta.Magnitude>s.Range or delta.Magnitude<0.001 then return end
+    if delta.Magnitude>s.Range or delta.Magnitude<0.001 then return nil,'range' end
     if s.WallCheck then
         local hit=workspace:Raycast(root.Position,delta,self.ray)
-        if hit and not hit.Instance:IsDescendantOf(character) then return end
+        if hit and not hit.Instance:IsDescendantOf(character) then return nil,'wall' end
     end
     return {Player=player,Part=part,Score=s.Priority=='Lowest health' and humanoid.Health or delta.Magnitude}
 end
@@ -59,9 +77,14 @@ function MeleeAura:Equip(tool)
     if self.activation then self.activation:Disconnect(); self.activation=nil end
     self:Reset()
     self.tool,self.nextAttack=tool,0
+    self:Log('info','equipped',tool and tool.Name or 'No supported tool')
     if tool then
         self.activation=tool.Activated:Connect(function()
-            if not self:Blocked() then self.swingUntil=os.clock()+self.config.SwingWindow end
+            if not self:Blocked() then
+                self.swingUntil=os.clock()+self.config.SwingWindow
+                self:Count('swing.Activated')
+                self:Log('trace','swing','Tool.Activated observed',nil,0.5)
+            end
         end)
     end
 end
@@ -70,31 +93,45 @@ function MeleeAura:InstallHook()
     -- One dispatcher per executor session avoids hook chains on repeated loads.
     local env=getgenv()
     local state=env.LegitMeleeRaycastHook
+    -- Upgrade the old dispatcher once; leave its owner empty so it stays transparent.
+    if state and state.Version~=2 then state.Owner=nil; state=nil end
     if not state then
         if type(hookmetamethod)~='function' or type(getnamecallmethod)~='function'
             or type(checkcaller)~='function' or type(getcallingscript)~='function' then
-            self.Status='Unavailable: executor needs Raycast hook APIs'
+            self:StatusTo('Unavailable: executor needs Raycast hook APIs')
+            self:Log('error','capabilities',self.Status,nil,5)
             return false
         end
-        state={}
+        state={Version=2}
         local previous
         local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
         local ok,result=pcall(function()
             return hookmetamethod(game,'__namecall',wrap(function(receiver,...)
                 local owner=state.Owner
-                if owner and getnamecallmethod()=='Raycast' and receiver==workspace and not checkcaller() then
+                if owner and receiver==workspace then
                     local args=table.pack(...)
-                    local succeeded,direction=pcall(owner.Redirect,owner,getcallingscript(),args[1],args[2])
+                    local succeeded,direction=pcall(function()
+                        if getnamecallmethod()~='Raycast' or checkcaller() then return end
+                        owner:Count('ray.seen')
+                        return owner:Redirect(getcallingscript(),args[1],args[2])
+                    end)
+                    if not succeeded then
+                        owner:Count('hook.error')
+                        owner:Log('error','hook',tostring(direction),nil,1)
+                    end
                     if succeeded and direction then
                         args[2]=direction
-                        return previous(receiver,table.unpack(args,1,args.n))
+                        local results=table.pack(previous(receiver,table.unpack(args,1,args.n)))
+                        pcall(owner.ObserveHit,owner,results[1])
+                        return table.unpack(results,1,results.n)
                     end
                 end
                 return previous(receiver,...)
             end))
         end)
         if not ok or type(result)~='function' then
-            self.Status='Unavailable: Raycast hook installation failed'
+            self:StatusTo('Unavailable: Raycast hook installation failed')
+            self:Log('error','hook.install',tostring(result),nil,5)
             return false
         end
         previous=result
@@ -102,54 +139,93 @@ function MeleeAura:InstallHook()
     end
     state.Owner=self
     self.hook=state
+    self:Log('info','hook.install','Raycast dispatcher attached')
     return true
 end
+local function pathOf(object)
+    if not object then return 'nil' end
+    local ok,path=pcall(function() return object:GetFullName() end)
+    return ok and path or object.Name or 'unknown'
+end
+function MeleeAura:ObserveHit(result)
+    self:Count('ray.redirected')
+    if not self.logger or not self.logger.settings.CaptureRays then return end
+    local hit=(typeof(result)=='RaycastResult' or type(result)=='table') and result.Instance
+    self:Log('trace','ray.result','Client raycast result; not proof of server damage',
+        {Hit=pathOf(hit)},0.5)
+end
 function MeleeAura:Redirect(caller,origin,direction)
-    if self:Blocked() or not self.target or os.clock()>self.swingUntil then return end
-    if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return end
+    local function reject(reason) self:Count('ray.skip.'..reason); return nil end
+    if self:Blocked() then return reject(self:BlockReason()) end
+    if not self.target then return reject('no target') end
+    if os.clock()>self.swingUntil then return reject('no swing window') end
+    if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return reject('invalid vector') end
     local character,_,root=rig(Players.LocalPlayer)
-    if not character or not self.tool or self.tool.Parent~=character or not self.tool.Enabled then return end
+    if not character or not self.tool or self.tool.Parent~=character or not self.tool.Enabled then return reject('tool/rig') end
     -- Only equipped weapon scripts or a named melee hitbox module may redirect.
     -- Short rays and nearby origins further exclude camera, visibility and gun rays.
+    if direction.Magnitude>self.config.Range+6 or (origin-root.Position).Magnitude>self.config.Range+6 then return reject('ray bounds') end
+    if self.logger and self.logger.settings.CaptureRays then
+        self:Log('trace','ray.caller','Nearby game Raycast observed',
+            {Caller=pathOf(caller),Length=string.format('%.2f',direction.Magnitude)},0.5)
+    end
     if not caller or (not caller:IsDescendantOf(self.tool)
-        and not caller.Name:lower():find('raycasthitbox',1,true)) then return end
-    if direction.Magnitude>self.config.Range+6 or (origin-root.Position).Magnitude>self.config.Range+6 then return end
+        and not caller.Name:lower():find('raycasthitbox',1,true)) then return reject('caller mismatch') end
     self.ray.FilterDescendantsInstances={character}
     local candidate=self:Candidate(self.target.Player,root)
-    if not candidate then return end
+    if not candidate then return reject('target invalidated') end
     local delta=candidate.Part.Position-origin
-    if delta.Magnitude<0.001 or delta.Magnitude>self.config.Range+6 then return end
+    if delta.Magnitude<0.001 or delta.Magnitude>self.config.Range+6 then return reject('target ray bounds') end
     return delta.Unit*math.max(direction.Magnitude,delta.Magnitude+0.1)
 end
 function MeleeAura:Step(now)
-    if self:Blocked() then self:Reset(); self.Status=self.config.Enabled and 'Paused' or 'Disabled'; return end
+    local blocked=self:BlockReason()
+    if blocked then self:Reset(); self:StatusTo(self.config.Enabled and ('Paused: '..blocked) or 'Disabled'); return end
     if not self:InstallHook() then self:Reset(); return end
     local character,_,root=rig(Players.LocalPlayer)
     local tool=character and character:FindFirstChildOfClass('Tool')
+    if not character then self:Equip(nil); self:Reset(); self:StatusTo('Waiting for local character'); return end
     if not tool or not weapons[tool.Name] or not tool.Enabled then
-        self:Equip(nil); self:Reset(); self.Status='Equip a supported melee tool'; return
+        self:Equip(nil); self:Reset()
+        self:StatusTo(not tool and 'Equip a supported melee tool' or (not weapons[tool.Name] and ('Unsupported tool: '..tool.Name) or ('Tool disabled: '..tool.Name)))
+        return
     end
     self:Equip(tool)
     self.ray.FilterDescendantsInstances={character}
     local best
     for _,player in ipairs(Players:GetPlayers()) do
-        local candidate=self:Candidate(player,root)
+        local candidate,reason=self:Candidate(player,root)
+        if reason and reason~='self' then self:Count('target.skip.'..reason) end
         if candidate and (not best or self.engine:TargetRank(player)<self.engine:TargetRank(best.Player)
             or (self.engine:TargetRank(player)==self.engine:TargetRank(best.Player) and (candidate.Score<best.Score
                 or (candidate.Score==best.Score and player.UserId<best.Player.UserId)))) then best=candidate end
     end
     self.target=best
-    self.Status=best and ('Target: @'..best.Player.Name) or 'No target in range'
+    self:StatusTo(best and ('Target: @'..best.Player.Name) or 'No target in range')
+    if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
+        self.lastSummary=now
+        self:Log('info','summary','Cumulative counters (target skips count heartbeat evaluations)',self.Counters)
+    end
     if best and self.config.AutoAttack and now>=self.nextAttack then
         self.nextAttack=now+self.config.Interval
         self.swingUntil=now+self.config.SwingWindow
-        local ok=pcall(function() tool:Activate() end)
-        if not ok then self:Reset(); self.Status='Tool activation failed' end
+        self:Count('activation.attempted')
+        local ok,problem=pcall(function() tool:Activate() end)
+        if not ok then
+            self:Reset(); self:StatusTo('Tool activation failed')
+            self:Log('error','activation',tostring(problem),nil,1)
+        end
     end
 end
 function MeleeAura:Start()
     if self.connection then return end
-    self.connection=RunService.Heartbeat:Connect(function() self:Step(os.clock()) end)
+    self.connection=RunService.Heartbeat:Connect(function()
+        local ok,problem=xpcall(function() self:Step(os.clock()) end,debug.traceback)
+        if not ok then
+            self:Reset(); self:StatusTo('Error in melee update')
+            self:Log('error','heartbeat',tostring(problem),nil,1)
+        end
+    end)
 end
 function MeleeAura:Destroy()
     self.alive=false

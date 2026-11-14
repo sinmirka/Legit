@@ -156,6 +156,7 @@ function Engine:Choose(camera, root, now)
 end
 function Engine:SetStatus(value)
     self.Status=value
+    if self.Logger then self.Logger:State('Aim','status',value) end
     if self.library.SetStatus then self.library:SetStatus(value) end
 end
 function Engine:PointerBlocked()

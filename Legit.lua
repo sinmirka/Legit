@@ -17127,6 +17127,7 @@ function Engine:Choose(camera, root, now)
 end
 function Engine:SetStatus(value)
     self.Status=value
+    if self.Logger then self.Logger:State('Aim','status',value) end
     if self.library.SetStatus then self.library:SetStatus(value) end
 end
 function Engine:PointerBlocked()
@@ -17625,34 +17626,52 @@ local function finite(vector)
 end
 function MeleeAura.new(config,engine,library)
     local self=setmetatable({config=config,engine=engine,library=library,alive=true,
-        nextAttack=0,swingUntil=0,Status='Disabled'},MeleeAura)
+        nextAttack=0,swingUntil=0,Status='Disabled',Counters={},lastSummary=0,logger=engine.Logger},MeleeAura)
     self.ray=RaycastParams.new()
     self.ray.FilterType=Enum.RaycastFilterType.Exclude
     self.ray.IgnoreWater=true
     return self
 end
+function MeleeAura:Count(reason)
+    if self.logger and self.logger.settings.Enabled then self.Counters[reason]=(self.Counters[reason] or 0)+1 end
+end
+function MeleeAura:Log(level,event,message,data,interval)
+    if self.logger then self.logger:Write(level,'Melee',event,message,data,interval) end
+end
+function MeleeAura:StatusTo(value)
+    self.Status=value
+    if self.logger then self.logger:State('Melee','status',value) end
+end
+function MeleeAura:BlockReason()
+    if not self.alive then return 'unloaded' end
+    if not self.config.Enabled then return 'disabled' end
+    if not self.engine.focused then return 'unfocused' end
+    if Input:GetFocusedTextBox() then return 'typing' end
+    if self.library:IsInteracting() then return 'UI interaction' end
+    if self.config.PauseMenu and self.library.open then return 'menu open' end
+end
 function MeleeAura:Reset()
     self.target,self.swingUntil=nil,0
 end
 function MeleeAura:Blocked()
-    return not self.alive or not self.config.Enabled or not self.engine.focused
-        or Input:GetFocusedTextBox()~=nil or self.library:IsInteracting()
-        or (self.config.PauseMenu and self.library.open)
+    return self:BlockReason()~=nil
 end
 function MeleeAura:Candidate(player,root)
     local s=self.config
-    if not self.engine:Allowed(player,s) then return end
+    if player==Players.LocalPlayer then return nil,'self' end
+    if not self.engine:Allowed(player,s) then return nil,'team/friend/priority' end
     local character,humanoid,targetRoot=rig(player)
-    if not character or humanoid.Health<s.MinHealth then return end
-    if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return end
+    if not character then return nil,'rig/dead' end
+    if humanoid.Health<s.MinHealth then return nil,'minimum HP' end
+    if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return nil,'ForceField' end
     local part=character:FindFirstChild(s.Part)
     if not part and s.Part=='UpperTorso' then part=character:FindFirstChild('Torso') end
-    if not part or not part:IsA('BasePart') then return end
+    if not part or not part:IsA('BasePart') then return nil,'body part' end
     local delta=part.Position-root.Position
-    if delta.Magnitude>s.Range or delta.Magnitude<0.001 then return end
+    if delta.Magnitude>s.Range or delta.Magnitude<0.001 then return nil,'range' end
     if s.WallCheck then
         local hit=workspace:Raycast(root.Position,delta,self.ray)
-        if hit and not hit.Instance:IsDescendantOf(character) then return end
+        if hit and not hit.Instance:IsDescendantOf(character) then return nil,'wall' end
     end
     return {Player=player,Part=part,Score=s.Priority=='Lowest health' and humanoid.Health or delta.Magnitude}
 end
@@ -17661,9 +17680,14 @@ function MeleeAura:Equip(tool)
     if self.activation then self.activation:Disconnect(); self.activation=nil end
     self:Reset()
     self.tool,self.nextAttack=tool,0
+    self:Log('info','equipped',tool and tool.Name or 'No supported tool')
     if tool then
         self.activation=tool.Activated:Connect(function()
-            if not self:Blocked() then self.swingUntil=os.clock()+self.config.SwingWindow end
+            if not self:Blocked() then
+                self.swingUntil=os.clock()+self.config.SwingWindow
+                self:Count('swing.Activated')
+                self:Log('trace','swing','Tool.Activated observed',nil,0.5)
+            end
         end)
     end
 end
@@ -17672,31 +17696,45 @@ function MeleeAura:InstallHook()
     -- One dispatcher per executor session avoids hook chains on repeated loads.
     local env=getgenv()
     local state=env.LegitMeleeRaycastHook
+    -- Upgrade the old dispatcher once; leave its owner empty so it stays transparent.
+    if state and state.Version~=2 then state.Owner=nil; state=nil end
     if not state then
         if type(hookmetamethod)~='function' or type(getnamecallmethod)~='function'
             or type(checkcaller)~='function' or type(getcallingscript)~='function' then
-            self.Status='Unavailable: executor needs Raycast hook APIs'
+            self:StatusTo('Unavailable: executor needs Raycast hook APIs')
+            self:Log('error','capabilities',self.Status,nil,5)
             return false
         end
-        state={}
+        state={Version=2}
         local previous
         local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
         local ok,result=pcall(function()
             return hookmetamethod(game,'__namecall',wrap(function(receiver,...)
                 local owner=state.Owner
-                if owner and getnamecallmethod()=='Raycast' and receiver==workspace and not checkcaller() then
+                if owner and receiver==workspace then
                     local args=table.pack(...)
-                    local succeeded,direction=pcall(owner.Redirect,owner,getcallingscript(),args[1],args[2])
+                    local succeeded,direction=pcall(function()
+                        if getnamecallmethod()~='Raycast' or checkcaller() then return end
+                        owner:Count('ray.seen')
+                        return owner:Redirect(getcallingscript(),args[1],args[2])
+                    end)
+                    if not succeeded then
+                        owner:Count('hook.error')
+                        owner:Log('error','hook',tostring(direction),nil,1)
+                    end
                     if succeeded and direction then
                         args[2]=direction
-                        return previous(receiver,table.unpack(args,1,args.n))
+                        local results=table.pack(previous(receiver,table.unpack(args,1,args.n)))
+                        pcall(owner.ObserveHit,owner,results[1])
+                        return table.unpack(results,1,results.n)
                     end
                 end
                 return previous(receiver,...)
             end))
         end)
         if not ok or type(result)~='function' then
-            self.Status='Unavailable: Raycast hook installation failed'
+            self:StatusTo('Unavailable: Raycast hook installation failed')
+            self:Log('error','hook.install',tostring(result),nil,5)
             return false
         end
         previous=result
@@ -17704,54 +17742,93 @@ function MeleeAura:InstallHook()
     end
     state.Owner=self
     self.hook=state
+    self:Log('info','hook.install','Raycast dispatcher attached')
     return true
 end
+local function pathOf(object)
+    if not object then return 'nil' end
+    local ok,path=pcall(function() return object:GetFullName() end)
+    return ok and path or object.Name or 'unknown'
+end
+function MeleeAura:ObserveHit(result)
+    self:Count('ray.redirected')
+    if not self.logger or not self.logger.settings.CaptureRays then return end
+    local hit=(typeof(result)=='RaycastResult' or type(result)=='table') and result.Instance
+    self:Log('trace','ray.result','Client raycast result; not proof of server damage',
+        {Hit=pathOf(hit)},0.5)
+end
 function MeleeAura:Redirect(caller,origin,direction)
-    if self:Blocked() or not self.target or os.clock()>self.swingUntil then return end
-    if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return end
+    local function reject(reason) self:Count('ray.skip.'..reason); return nil end
+    if self:Blocked() then return reject(self:BlockReason()) end
+    if not self.target then return reject('no target') end
+    if os.clock()>self.swingUntil then return reject('no swing window') end
+    if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return reject('invalid vector') end
     local character,_,root=rig(Players.LocalPlayer)
-    if not character or not self.tool or self.tool.Parent~=character or not self.tool.Enabled then return end
+    if not character or not self.tool or self.tool.Parent~=character or not self.tool.Enabled then return reject('tool/rig') end
     -- Only equipped weapon scripts or a named melee hitbox module may redirect.
     -- Short rays and nearby origins further exclude camera, visibility and gun rays.
+    if direction.Magnitude>self.config.Range+6 or (origin-root.Position).Magnitude>self.config.Range+6 then return reject('ray bounds') end
+    if self.logger and self.logger.settings.CaptureRays then
+        self:Log('trace','ray.caller','Nearby game Raycast observed',
+            {Caller=pathOf(caller),Length=string.format('%.2f',direction.Magnitude)},0.5)
+    end
     if not caller or (not caller:IsDescendantOf(self.tool)
-        and not caller.Name:lower():find('raycasthitbox',1,true)) then return end
-    if direction.Magnitude>self.config.Range+6 or (origin-root.Position).Magnitude>self.config.Range+6 then return end
+        and not caller.Name:lower():find('raycasthitbox',1,true)) then return reject('caller mismatch') end
     self.ray.FilterDescendantsInstances={character}
     local candidate=self:Candidate(self.target.Player,root)
-    if not candidate then return end
+    if not candidate then return reject('target invalidated') end
     local delta=candidate.Part.Position-origin
-    if delta.Magnitude<0.001 or delta.Magnitude>self.config.Range+6 then return end
+    if delta.Magnitude<0.001 or delta.Magnitude>self.config.Range+6 then return reject('target ray bounds') end
     return delta.Unit*math.max(direction.Magnitude,delta.Magnitude+0.1)
 end
 function MeleeAura:Step(now)
-    if self:Blocked() then self:Reset(); self.Status=self.config.Enabled and 'Paused' or 'Disabled'; return end
+    local blocked=self:BlockReason()
+    if blocked then self:Reset(); self:StatusTo(self.config.Enabled and ('Paused: '..blocked) or 'Disabled'); return end
     if not self:InstallHook() then self:Reset(); return end
     local character,_,root=rig(Players.LocalPlayer)
     local tool=character and character:FindFirstChildOfClass('Tool')
+    if not character then self:Equip(nil); self:Reset(); self:StatusTo('Waiting for local character'); return end
     if not tool or not weapons[tool.Name] or not tool.Enabled then
-        self:Equip(nil); self:Reset(); self.Status='Equip a supported melee tool'; return
+        self:Equip(nil); self:Reset()
+        self:StatusTo(not tool and 'Equip a supported melee tool' or (not weapons[tool.Name] and ('Unsupported tool: '..tool.Name) or ('Tool disabled: '..tool.Name)))
+        return
     end
     self:Equip(tool)
     self.ray.FilterDescendantsInstances={character}
     local best
     for _,player in ipairs(Players:GetPlayers()) do
-        local candidate=self:Candidate(player,root)
+        local candidate,reason=self:Candidate(player,root)
+        if reason and reason~='self' then self:Count('target.skip.'..reason) end
         if candidate and (not best or self.engine:TargetRank(player)<self.engine:TargetRank(best.Player)
             or (self.engine:TargetRank(player)==self.engine:TargetRank(best.Player) and (candidate.Score<best.Score
                 or (candidate.Score==best.Score and player.UserId<best.Player.UserId)))) then best=candidate end
     end
     self.target=best
-    self.Status=best and ('Target: @'..best.Player.Name) or 'No target in range'
+    self:StatusTo(best and ('Target: @'..best.Player.Name) or 'No target in range')
+    if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
+        self.lastSummary=now
+        self:Log('info','summary','Cumulative counters (target skips count heartbeat evaluations)',self.Counters)
+    end
     if best and self.config.AutoAttack and now>=self.nextAttack then
         self.nextAttack=now+self.config.Interval
         self.swingUntil=now+self.config.SwingWindow
-        local ok=pcall(function() tool:Activate() end)
-        if not ok then self:Reset(); self.Status='Tool activation failed' end
+        self:Count('activation.attempted')
+        local ok,problem=pcall(function() tool:Activate() end)
+        if not ok then
+            self:Reset(); self:StatusTo('Tool activation failed')
+            self:Log('error','activation',tostring(problem),nil,1)
+        end
     end
 end
 function MeleeAura:Start()
     if self.connection then return end
-    self.connection=RunService.Heartbeat:Connect(function() self:Step(os.clock()) end)
+    self.connection=RunService.Heartbeat:Connect(function()
+        local ok,problem=xpcall(function() self:Step(os.clock()) end,debug.traceback)
+        if not ok then
+            self:Reset(); self:StatusTo('Error in melee update')
+            self:Log('error','heartbeat',tostring(problem),nil,1)
+        end
+    end)
 end
 function MeleeAura:Destroy()
     self.alive=false
@@ -17925,6 +18002,84 @@ function Tools:Destroy()
 end
 return Tools
 ]====]
+files["src/Diagnostics.lua"]=[====[-- Bounded local diagnostics. No network transport; file/clipboard export is explicit.
+local Diagnostics={}
+Diagnostics.__index=Diagnostics
+local function clean(value,limit)
+    return tostring(value):gsub('[\r\n]',' '):sub(1,limit or 300)
+end
+local function fields(data)
+    local result={}
+    for key,value in pairs(data or {}) do table.insert(result,clean(key)..'='..clean(value)) end
+    table.sort(result)
+    return table.concat(result,' ')
+end
+function Diagnostics:RefreshEnvironment()
+    self.environment.PlaceId=game.PlaceId or 'unknown'
+    self.environment.GameId=game.GameId or 'unknown'
+    self.environment.Build='obsidian-diagnostics-v1'
+    for _,name in ipairs({'hookmetamethod','getnamecallmethod','checkcaller','getcallingscript','newcclosure','writefile','setclipboard'}) do
+        self.environment[name]=type(getfenv()[name])=='function'
+    end
+    if type(identifyexecutor)=='function' then
+        local ok,name,version=pcall(identifyexecutor)
+        if ok then self.environment.Executor=clean(name)..' '..clean(version or '') end
+    end
+end
+function Diagnostics.new(settings,capacity)
+    local self=setmetatable({settings=settings,capacity=capacity or 400,entries={},head=0,count=0,
+        total=0,throttles={},states={},started=os.clock(),environment={}},Diagnostics)
+    self:RefreshEnvironment()
+    return self
+end
+function Diagnostics:Write(level,component,event,message,data,interval)
+    if not self.settings.Enabled then return false end
+    local key=component..'.'..event
+    local now=os.clock()
+    if interval and self.throttles[key] and now-self.throttles[key]<interval then return false end
+    self.throttles[key]=now
+    local line=string.format('[+%.3fs] [%s] %s.%s %s',now-self.started,level,component,event,clean(message,1000))
+    local extra=fields(data)
+    if extra~='' then line=line..' | '..extra end
+    self.head=self.head%self.capacity+1
+    self.entries[self.head]=line
+    self.count=math.min(self.count+1,self.capacity); self.total+=1
+    if self.settings.Console then pcall(print,'[Legit] '..line) end
+    return true
+end
+function Diagnostics:State(component,event,value,data)
+    if not self.settings.Enabled then return end
+    local key=component..'.'..event
+    if self.states[key]==value then return end
+    if self:Write('info',component,event,value,data,0.5) then self.states[key]=value end
+end
+function Diagnostics:Clear()
+    self.entries,self.throttles,self.states={},{},{}
+    self.head,self.count,self.total=0,0,0
+end
+function Diagnostics:Report(context)
+    self:RefreshEnvironment()
+    local lines={'Legit diagnostic report','Environment: '..fields(self.environment),'Current: '..fields(context),
+        string.format('Entries: %d / %d; overwritten: %d',self.count,self.capacity,self.total-self.count)}
+    for offset=1,self.count do
+        local index=(self.head-self.count+offset-1)%self.capacity+1
+        table.insert(lines,self.entries[index])
+    end
+    return table.concat(lines,'\n')..'\n'
+end
+function Diagnostics:Save(context)
+    for _,path in ipairs({'Legit','Legit/Universal','Legit/Universal/logs'}) do
+        if type(isfolder)~='function' or not isfolder(path) then
+            local ok,problem=pcall(makefolder,path)
+            if not ok and not (type(isfolder)=='function' and isfolder(path)) then error(problem) end
+        end
+    end
+    local path='Legit/Universal/logs/latest.txt'
+    writefile(path,self:Report(context))
+    return path
+end
+return Diagnostics
+]====]
 files["main.lua"]=[====[-- Legit | Obsidian UI. Entry point for the README loadstring.
 local bundledFiles=...
 local BASE='https://raw.githubusercontent.com/sinmirka/Legit/main/'
@@ -18019,6 +18174,7 @@ library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
+    Debug={Enabled=false,Console=false,CaptureRays=false},
     Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
@@ -18061,12 +18217,21 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,tools
+local engine,melee,tools,logger
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
+function app:DebugContext()
+    local data={AimStatus=engine and engine.Status or 'not started',MeleeStatus=melee and melee.Status or 'not started',
+        MeleeEnabled=config.Melee.Enabled,AutoAttack=config.Melee.AutoAttack,Range=config.Melee.Range,
+        Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,
+        EquippedTool=melee and melee.tool and melee.tool.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
+    if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
+    return data
+end
 function app:Unload()
     if not self.Alive then return end
     self.Alive=false
     if env.Legit==self then env.Legit=nil end
+    if logger then logger:Write('info','App','unload','Unloading Legit') end
     local function clean(label,callback)
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
@@ -18080,8 +18245,11 @@ end
 env.Legit=app
 local ok,message=xpcall(function()
     library:init()
+    logger=remote('src/Diagnostics.lua')().new(config.Debug)
+    app.Logger=logger
     local Engine=remote('src/Engine.lua')()
     engine=Engine.new(config,library,drawingAPI)
+    engine.Logger=logger
     app.Engine=engine
     melee=remote('src/MeleeAura.lua')().new(config.Melee,engine,library)
     app.MeleeAura=melee
@@ -18446,6 +18614,34 @@ local ok,message=xpcall(function()
         library.StatusLabel:SetVisible(library.showStatus)
     end})
     right:AddButton({text='Unload',confirm=true,callback=function() app:Unload() end})
+    left,right=sections('UI Settings','Debugging','Melee diagnostics')
+    local debugEnabled=toggle(left,'Enable diagnostic logs','Debug','Enabled')
+    toggle(left,'Echo logs to console','Debug','Console')
+    local traceRays=toggle(left,'Trace nearby melee rays','Debug','CaptureRays')
+    left:AddButton({text='Copy debug report',callback=function() action(function()
+        assert(type(setclipboard)=='function','Executor does not support clipboard')
+        setclipboard(logger:Report(app:DebugContext()))
+        library:SendNotification('Debug report copied',4)
+    end) end})
+    left:AddButton({text='Save debug report',callback=function() action(function()
+        local path=logger:Save(app:DebugContext())
+        library:SendNotification('Saved: '..path,5)
+    end) end})
+    local function clearDiagnostics()
+        logger:Clear(); melee.Counters={}; melee.lastSummary=0
+    end
+    left:AddButton({text='Clear debug log',callback=clearDiagnostics})
+    right:AddButton({text='Start melee capture',callback=function()
+        clearDiagnostics(); debugEnabled:SetState(true); traceRays:SetState(true)
+        logger:Write('info','Melee','capture','Capture started',app:DebugContext())
+        library:SendNotification('Capture started. Enable melee, close menu and try several swings, then save the report.',7)
+    end})
+    right:AddButton({text='Stop debug capture',callback=function()
+        logger:Write('info','Melee','capture','Capture stopped',app:DebugContext())
+        traceRays:SetState(false); debugEnabled:SetState(false)
+    end})
+    right:AddText({text='Keeps up to 400 entries in memory. File export is manual.'})
+    right:AddText({text='Client hits do not confirm server damage.'})
     engine:Connect(game:GetService('UserInputService').InputBegan,function(input,processed)
         if not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end
     end)

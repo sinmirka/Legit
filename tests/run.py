@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--luau', default='luau')
 parser.add_argument('--compiler', help='Optional luau-compile path; compiles the real vendored UI too')
 args = parser.parse_args()
-sources = ['vendor/Obsidian/Lucide.lua', 'vendor/Obsidian/Library.lua', 'src/ObsidianUI.lua', 'src/Engine.lua', 'src/GuiDrawing.lua', 'src/MeleeAura.lua', 'src/UniversalTools.lua', 'main.lua', 'loader.lua', 'loader-xeno.lua', 'Legit.lua']
+sources = ['vendor/Obsidian/Lucide.lua', 'vendor/Obsidian/Library.lua', 'src/ObsidianUI.lua', 'src/Engine.lua', 'src/GuiDrawing.lua', 'src/MeleeAura.lua', 'src/UniversalTools.lua', 'src/Diagnostics.lua', 'main.lua', 'loader.lua', 'loader-xeno.lua', 'Legit.lua']
 if args.compiler:
     subprocess.run([args.compiler, '--null', *(str(root / name) for name in sources)], check=True)
     print(f'PASS compilation of {len(sources)} runtime files, including actual Obsidian and Lucide', flush=True)
@@ -38,7 +38,7 @@ bundle += (root / 'tests/roblox_mock.luau').read_text(encoding='utf-8')
 bundle += (root / 'tests/obsidian_mock.luau').read_text(encoding='utf-8')
 directory = root / '.test-work'
 directory.mkdir(exist_ok=True)
-for name in ['integration', 'obsidian_ui', 'bundle', 'melee', 'universal']:
+for name in ['integration', 'obsidian_ui', 'bundle', 'melee', 'universal', 'diagnostics']:
     script = directory / (name + '.luau')
     script.write_text(bundle + (root / 'tests' / (name + '.luau')).read_text(encoding='utf-8'), encoding='utf-8')
     subprocess.run([args.luau, str(script)], check=True)
