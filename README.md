@@ -1,6 +1,6 @@
 # Legit — Player Tools
 
-Собственный интерфейс **Player Tools**: тёмная панель с фиолетовыми переключателями, ползунками, прокруткой и перетаскиванием. Доступны 8 вкладок и 109 настроек ESP, наведения и Melee Aura.
+Интерфейс на [Obsidian](https://github.com/deividcomsono/Obsidian) с семью вкладками из референсов: **Aimbot, Combat, Character, ESP, Misc, Players, UI Settings**. Настройки Aim, ESP и Melee Aura сохранены и сгруппированы по назначению. UI поддерживает поиск, изменение размера окна, цвета, прозрачность, привязки клавиш и масштаб.
 
 ## Запуск
 
@@ -8,7 +8,7 @@
 loadstring(game:HttpGet("https://raw.githubusercontent.com/sinmirka/Legit/main/Legit.lua"))()
 ```
 
-Один файл, одна HTTP-загрузка. Интерфейс и логика встроены в `Legit.lua`. Приложение использует стандартный Roblox GUI; внешние UI-библиотеки, Drawing API, PNG и `getcustomasset` для запуска не нужны.
+Один файл, одна HTTP-загрузка. Obsidian, Lucide и логика встроены в `Legit.lua`; дополнительных загрузок Lua при запуске нет. Drawing API и `getcustomasset` не нужны. Иконки и текстуры используют Roblox asset IDs.
 
 Нужны `loadstring`, `getgenv` и файловые функции для профилей. ESP и Aimbot изначально выключены. Старый экземпляр при повторном запуске выгружается.
 
@@ -101,7 +101,9 @@ python tests/run.py --luau /path/to/luau
 
 - `Legit.lua` — автономный файл для однострочного запуска; сборка: `python tools/build_bundle.py`.
 - `main.lua` — исходник приложения, настройки и профили.
-- `src/NativeUI.lua` — собственный интерфейс Player Tools.
+- `src/ObsidianUI.lua` — адаптер контролов Obsidian, профилей и блокировки ввода во время работы с меню.
+- `vendor/Obsidian/` — закреплённая версия Obsidian и Lucide с MIT-лицензиями.
+- `src/NativeUI.lua` — сохранённый предыдущий интерфейс; не используется и не включается в сборку.
 - `src/Engine.lua` — ESP, выбор целей, управление камерой и очистка.
 - `src/MeleeAura.lua` — Melee Aura, фильтры целей, автоактивация оружия и Raycast hook.
 - `src/GuiDrawing.lua` — стандартные Roblox GUI-примитивы для ESP/FOV.

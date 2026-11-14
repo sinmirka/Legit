@@ -1,4 +1,4 @@
--- Legit | Player Tools UI. Entry point for the README loadstring.
+-- Legit | Obsidian UI. Entry point for the README loadstring.
 local bundledFiles=...
 local BASE='https://raw.githubusercontent.com/sinmirka/Legit/main/'
 -- BEGIN HTTP TRANSPORT
@@ -82,12 +82,16 @@ end
 local renderMode='GUI'
 local renderer=remote('src/GuiDrawing.lua')().new(game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui'))
 local drawingAPI=renderer
-local loaded,library=pcall(function() return remote('src/NativeUI.lua')().new() end)
+local loaded,library=pcall(function()
+    local icons=remote('vendor/Obsidian/Lucide.lua')()
+    local obsidian=remote('vendor/Obsidian/Library.lua')(icons)
+    return remote('src/ObsidianUI.lua')().new(obsidian)
+end)
 if not loaded then if renderer then renderer:Destroy() end; error('[Legit] '..tostring(library),0) end
 library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={
-    Alpha={},Interface={Accent=library.theme.Accent},
+    Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     ESP={
         Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=false,SkipFriends=false,
         MaxDistance=1500,RefreshRate=30,Opacity=1,FillOpacity=0.35,OutlineOpacity=1,
@@ -158,7 +162,7 @@ local ok,message=xpcall(function()
     local camera=workspace.CurrentCamera
     local viewport=camera and camera.ViewportSize or Vector2.new(1280,720)
     local window=library.NewWindow({
-        title='PLAYER TOOLS',size=UDim2.fromOffset(660,620),
+        title='Criminality Legit',size=UDim2.fromOffset(920,700),
         position=UDim2.fromOffset(math.max(10,(viewport.X-660)/2),math.max(10,(viewport.Y-680)/2)),
     })
     local registered={}
@@ -180,6 +184,7 @@ local ok,message=xpcall(function()
             increment=step or 1,suffix=suffix or '',callback=function(value)
                 config[group][key]=value
                 if group=='Melee' then melee:Reset() end
+                if group=='Interface' and key=='Scale' then library.Obsidian:SetDPIScale(value) end
             end}),'slider')
     end
     local function select(section,label,group,key,choices)
@@ -198,8 +203,13 @@ local ok,message=xpcall(function()
             if group=='Interface' then library.theme.Accent=value; library:SetTheme(library.theme) end
         end}),'color')
     end
+    local tabs={}
+    for _,name in ipairs({'Aimbot','Combat','Character','ESP','Misc','Players','UI Settings'}) do
+        tabs[name]=window:AddTab(name)
+    end
+    local routes={Aim='Aimbot',['Aim+']='Aimbot',Colors='ESP',Overlay='ESP',Labels='ESP',Melee='Combat',Profiles='UI Settings'}
     local function sections(name,left,right)
-        local tab=window:AddTab(' '..name..' ')
+        local tab=tabs[routes[name] or name]
         return tab:AddSection(left,1),tab:AddSection(right,2)
     end
     local left,right=sections('Aim','Activation','Target filters')
@@ -299,7 +309,7 @@ local ok,message=xpcall(function()
     toggle(right,'Text outline','Labels','TextOutline')
     slider(right,'Text opacity','Labels','Opacity',0,1,0.01)
     slider(right,'Text offset','Labels','Offset',0,30,1,' px')
-    left,right=sections('Melee','Criminality / Raycast hook','Target filters')
+    left,right=sections('Melee','Melee Aura / Melee Assist','Melee filters')
     toggle(left,'Enable melee aura','Melee','Enabled')
     toggle(left,'Auto attack','Melee','AutoAttack')
     slider(left,'Reach','Melee','Range',1,20,0.5,' studs')
@@ -317,6 +327,10 @@ local ok,message=xpcall(function()
     slider(right,'Minimum target HP','Melee','MinHealth',1,100,1)
     right:AddText({text='Requires executor Raycast hook APIs'})
     right:AddText({text='Game weapon cooldowns still apply'})
+    tabs.Aimbot:AddSection('Silent Aim / Triggerbot',2):AddText({text='Not included yet: weapon-specific features need in-game validation.'})
+    tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
+    tabs.Character:AddSection('Character',1):AddText({text='Game-specific stamina, fall damage and ragdoll changes are not included.'})
+    tabs.ESP:AddSection('Values / Misc ESP',2):AddText({text='Game-specific loot, dealers and infection ESP are not included.'})
     left,right=sections('Profiles','Local profiles','Interface')
     local profileName='default'
     left:AddBox({text='Profile name',flag='profile_name',input=profileName,callback=function(value) profileName=value end})
@@ -391,6 +405,17 @@ local ok,message=xpcall(function()
     right:AddText({text='END: unload all features'})
     right:AddText({text='Opacity 0 = invisible; 1 = solid'})
     color(right,'UI accent','Interface','Accent')
+    slider(right,'UI scale','Interface','Scale',70,125,5,' %')
+    remember('Interface','MenuKey',right:AddBind({text='Menu key',flag='Interface_MenuKey',bind=config.Interface.MenuKey,
+        keycallback=function(key)
+            config.Interface.MenuKey=key
+            library.Obsidian.ToggleKeybind=typeof(key)=='EnumItem' and key or Enum.KeyCode.Unknown
+        end}),'bind')
+    right:AddButton({text='Show aim status',callback=function() library:SendNotification(engine.Status or 'Aimbot: OFF',5) end})
+    right:AddButton({text='Toggle status watermark',callback=function()
+        library.showStatus=not library.showStatus
+        library.StatusLabel:SetVisible(library.showStatus)
+    end})
     right:AddButton({text='Unload',confirm=true,callback=function() app:Unload() end})
     engine:Connect(game:GetService('UserInputService').InputBegan,function(input,processed)
         if not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end

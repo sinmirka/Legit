@@ -213,7 +213,7 @@ local Library = {
     ActiveLoading = nil,
 
     --// Context Menu \\--
-    ContextMenus = {}, 
+    ContextMenus = {},
 
     --// Corners \\--
     Corners = {},
@@ -1930,7 +1930,7 @@ do
 end
 
 local function RestoreMouseIcon()
-    pcall(function() 
+    pcall(function()
         RunService:UnbindFromRenderStep(Library.ShowCursorBinding)
         RunService.RenderStepped:Wait()
     end)
@@ -2980,7 +2980,7 @@ function Library:MakeBoxPopOut(Box: any, Options: {
             Placeholder:Destroy()
             Placeholder = nil
         end
-        
+
         PlaceholderHeader = nil
 
         if Float then
@@ -12454,10 +12454,10 @@ function Library:CreateWindow(WindowInfo)
             if not Menu.Active then
                 local HolderActive = false
                 for _, Other in Library.ContextMenus do
-                    if Other == Menu then 
+                    if Other == Menu then
                         continue
                     end
-   
+
                     if Other.Active and Other.Holder == Menu.Holder then
                         HolderActive = true
                         break
@@ -12574,7 +12574,7 @@ function Library:CreateWindow(WindowInfo)
         if WindowInfo.EnableCompacting then
             ApplyCompact()
         end
-    
+
         RefreshWindowTitleSize()
         if not IsCompact then
             LastExpandedWidth = Width

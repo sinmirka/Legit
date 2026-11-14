@@ -160,7 +160,7 @@ local fontFace
 do
 	pcall(function()
 		if not AssetManager.Supported then return end
-		
+
 		local ttfFile = `{ASSET_FOLDER}/lucide.ttf`
 		local familyFile = `{ASSET_FOLDER}/lucide.font`
 
@@ -203,7 +203,7 @@ function Lucide.GetAsset(name: string)
 	end
 
 	local iconData = nil
-	
+
 	local icon = iconRegistry[currentSize][iconIndex]
 	if icon then
 		iconData = iconData or {}
