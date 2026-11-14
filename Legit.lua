@@ -13942,12 +13942,16 @@ function UI.new(native)
         if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then self.dragging=false end
     end)
     connect(Input.WindowFocusReleased,function() self.dragging=false end)
-    connect(RunService.RenderStepped,function() self:UpdateMouse() end)
     return self
 end
 function UI:init()
     local parent=game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui')
     self.Gui=Instance.new('ScreenGui'); self.Gui.Name='LegitIrisOverlay'; self.Gui.ResetOnSpawn=false; self.Gui.IgnoreGuiInset=true; self.Gui.Parent=parent
+    -- Roblox's modal GUI releases the cursor while allowing RMB camera capture.
+    -- Never fight the game's camera by rewriting MouseBehavior every render frame.
+    self.modal=Instance.new('TextButton'); self.modal.Name='LegitMenuModal'; self.modal.Text=''
+    self.modal.Size=UDim2.fromOffset(1,1); self.modal.BackgroundTransparency=1; self.modal.BorderSizePixel=0
+    self.modal.AutoButtonColor=false; self.modal.Selectable=false; self.modal.Modal=true; self.modal.Visible=false; self.modal.Parent=self.Gui
     self.Native.Init(parent,false); self.started=true; self.hasInit=true
     self.disconnectDraw=self.Native:Connect(function() self:Draw() end)
     table.insert(self.connections,RunService.Heartbeat:Connect(function(dt) self:Cycle(dt) end))
@@ -13962,15 +13966,17 @@ function UI:Cycle(dt)
     local actions=self.actions; self.actions={}
     for _,callback in ipairs(actions) do if self.Alive then callback() end end
 end
-function UI:Start() self:Cycle(0) end
+function UI:Start() self:Cycle(0); self:UpdateMouse() end
 function UI:UpdateMouse()
+    if self.modal then self.modal.Visible=self.Alive and self.open end
     if self.Alive and self.open then
-        if not self.mouseState then self.mouseState={Behavior=Input.MouseBehavior,Icon=Input.MouseIconEnabled} end
-        Input.MouseBehavior=Enum.MouseBehavior.Default; Input.MouseIconEnabled=true
-    elseif self.mouseState then
-        if Input.MouseBehavior==Enum.MouseBehavior.Default then Input.MouseBehavior=self.mouseState.Behavior end
-        if Input.MouseIconEnabled==true then Input.MouseIconEnabled=self.mouseState.Icon end
-        self.mouseState=nil
+        if not self.cursorState then
+            self.cursorState={Icon=Input.MouseIconEnabled}
+            Input.MouseIconEnabled=true
+        end
+    elseif self.cursorState then
+        if Input.MouseIconEnabled==true then Input.MouseIconEnabled=self.cursorState.Icon end
+        self.cursorState=nil
     end
 end
 function UI:SetOpen(value)

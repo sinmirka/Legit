@@ -18,11 +18,20 @@ for _,tab in ipairs(ui.windows[1].tabs) do tab:Select(); ui:Cycle(0); assert(not
 ui:SetOpen(false); assert(not ui.open,'hide state')
 ui.Window:SetOpen(true); ui:Cycle(0); assert(ui.open,'show state')
 local input=MOCK.services.UserInputService
+ui:SetOpen(false)
 input.MouseBehavior=Enum.MouseBehavior.LockCenter; input.MouseIconEnabled=false
--- Reset the synthetic previous mouse baseline before checking acquisition.
-ui.mouseState=nil; ui:UpdateMouse()
-assert(input.MouseBehavior==Enum.MouseBehavior.Default and input.MouseIconEnabled,'menu mouse access')
-ui:SetOpen(false); assert(input.MouseBehavior==Enum.MouseBehavior.LockCenter and not input.MouseIconEnabled,'mouse restoration')
+ui:SetOpen(true)
+assert(ui.modal.Modal and ui.modal.Visible and input.MouseIconEnabled,'native modal menu cursor access')
+input.Down[Enum.UserInputType.MouseButton2]=true
+for _=1,100 do
+    input.MouseBehavior=Enum.MouseBehavior.LockCurrentPosition
+    MOCK.services.RunService.RenderStepped:Fire(1/60)
+    assert(input.MouseBehavior==Enum.MouseBehavior.LockCurrentPosition,'menu never overwrites camera mouse capture')
+end
+input.Down[Enum.UserInputType.MouseButton2]=nil
+ui:SetOpen(false)
+assert(not ui.modal.Visible and input.MouseBehavior==Enum.MouseBehavior.LockCurrentPosition and not input.MouseIconEnabled,
+    'closing disables modal and restores only cursor icon, preserving latest camera behavior')
 ui:SetOpen(true); ui:Cycle(0)
 local originalMouse=input.GetMouseLocation
 input.GetMouseLocation=function() return MOCK.vec(210,110) end
@@ -70,7 +79,7 @@ ui:SetMenuKey('none'); ui:SetOpen(true)
 input.InputBegan:Fire({UserInputType=Enum.UserInputType.MouseButton1,KeyCode=Enum.KeyCode.Unknown},false)
 assert(ui.open,'cleared menu key does not match mouse Unknown keycode')
 ui:Unload()
-assert(not app.Alive and not ui.Alive and ir.ShutdownCalled and not app.DrawingRenderer.Alive,'Iris shutdown cleans app')
+assert(not app.Alive and not ui.Alive and ir.ShutdownCalled and not app.DrawingRenderer.Alive and not ui.modal.Visible,'Iris shutdown cleans app and modal state')
 local old=app.Config.Aim.Radius; options.Aim_Radius.State:set(300)
 assert(app.Config.Aim.Radius==old,'disposed state callback cannot mutate unloaded app')
 print('PASS Iris adapter: eight tabs, stable states, one-shot deferred actions, binds, alpha, mouse, profiles and cleanup')
