@@ -104,6 +104,8 @@ local config={
         VisibleColors=false,TeamColors=false,TargetColor=true,Rainbow=false,RainbowSpeed=0.15,
         Fade=false,FadeStart=0.6,Pulse=false,PulseSpeed=1,
     },
+    ObjectESP={Scrap=false,GreenCrates=false,RedCrates=false,Airdrops=false,Dealers=false,
+        MaxDistance=1500,MaxObjects=128,Highlight=true,Labels=true,Distance=true,ThroughWalls=true,FillTransparency=0.65},
     Colors={
         Fill=Color3.fromRGB(145,105,245),Outline=Color3.fromRGB(225,215,255),
         VisibleFill=Color3.fromRGB(90,220,150),VisibleOutline=Color3.fromRGB(140,255,190),
@@ -140,7 +142,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,silent,tools,logger
+local engine,melee,silent,tools,logger,objects
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -155,6 +157,7 @@ function app:DebugContext()
     data.InfiniteStamina=config.Character.InfiniteStamina
     data.StaminaTables=tools and #tools.staminaTables or 0
     data.InstantInteraction=config.Interaction.Instant
+    data.ObjectESPStatus=objects and objects.Status or 'not started'
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
@@ -172,6 +175,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if objects then clean('object ESP',function() objects:Destroy() end) end
     if tools then clean('universal tools',function() tools:Destroy() end) end
     if silent then clean('silent aim',function() silent:Destroy() end) end
     if melee then clean('melee',function() melee:Destroy() end) end
@@ -194,8 +198,11 @@ local ok,message=xpcall(function()
     app.SilentAim=silent
     tools=remote('src/UniversalTools.lua')().new(config,engine,library)
     app.Tools=tools
+    objects=remote('src/ObjectESP.lua')().new(config.ObjectESP,engine)
+    app.ObjectESP=objects
     library.unloaded:Connect(function()
         if silent then pcall(silent.Destroy,silent) end
+        if objects then pcall(objects.Destroy,objects) end
         if tools then pcall(tools.Destroy,tools) end
         if melee then pcall(melee.Destroy,melee) end
         if engine then pcall(engine.Destroy,engine) end
@@ -212,6 +219,7 @@ local ok,message=xpcall(function()
     local registered={}
     local function refreshTools(group)
         if group=='Character' or group=='World' or group=='Interaction' then tools:Step() end
+        if group=='ObjectESP' and objects then objects:Step() end
     end
     local function flag(group,key) return group..'_'..key end
     local function remember(group,key,option,kind,choices)
@@ -423,7 +431,21 @@ local ok,message=xpcall(function()
     stamina:AddButton({text='Rescan stamina',callback=function() tools:RescanStamina(); tools:Step(); library:SendNotification(tools.StaminaStatus,6) end})
     stamina:AddButton({text='Show stamina status',callback=function() library:SendNotification(tools.StaminaStatus,6) end})
     stamina:AddText({text='Requires getgc. Cached S-field method; current game behavior needs live verification.'})
-    tabs.ESP:AddSection('Values / Misc ESP',2):AddText({text='Game-specific loot, dealers and infection ESP are not included.'})
+    local loot=tabs.ESP:AddSection('Values / Criminality objects',2)
+    toggle(loot,'Scrap ESP','ObjectESP','Scrap')
+    toggle(loot,'Green crate ESP','ObjectESP','GreenCrates')
+    toggle(loot,'Red crate ESP','ObjectESP','RedCrates')
+    toggle(loot,'Airdrop ESP (yellow)','ObjectESP','Airdrops')
+    toggle(loot,'Dealer ESP','ObjectESP','Dealers')
+    slider(loot,'Object ESP distance','ObjectESP','MaxDistance',50,5000,50,' studs')
+    slider(loot,'Object ESP limit','ObjectESP','MaxObjects',16,256,16)
+    toggle(loot,'Object highlights','ObjectESP','Highlight')
+    toggle(loot,'Object labels','ObjectESP','Labels')
+    toggle(loot,'Object distances','ObjectESP','Distance')
+    toggle(loot,'Objects through walls','ObjectESP','ThroughWalls')
+    slider(loot,'Object fill transparency','ObjectESP','FillTransparency',0,1,0.05)
+    loot:AddButton({text='Refresh object ESP',callback=function() objects:Rescan(); library:SendNotification(objects.Status,5) end})
+    loot:AddText({text='Independent of player ESP. Crate names/types/colours are used; verify current game layout.'})
     left,right=sections('Character','Character / Universal','Speed options')
     toggle(left,'Noclip','Character','Noclip')
     toggle(left,'Infinite jump','Character','InfiniteJump')
@@ -638,6 +660,7 @@ local ok,message=xpcall(function()
     melee:Start()
     silent:Start()
     tools:Start()
+    objects:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end

@@ -1,6 +1,6 @@
 
 --UI library designed and developed by Barlas discord: 5nqs
- 
+
 
 local Icons = {
     crosshairs = "rbxassetid://96677288280405",
