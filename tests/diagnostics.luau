@@ -45,6 +45,7 @@ local target={UserId=2,Name='Target',DisplayName='Target',Parent=players,Neutral
 players.list={players.LocalPlayer,target}
 local tool=Instance.new('Tool'); tool.Parent=players.LocalPlayer.Character; tool.Name='Fists'; tool.Enabled=true
 players.LocalPlayer.Character.Children.Tool=tool
+assert(app:DebugContext().EquippedTool=='Fists','report sees actual equipment before a successful preflight')
 function tool:Activate() self.Activated:Fire() end
 local caller=Instance.new('LocalScript'); caller.Name='BladeScript'; caller.Parent=tool
 local intercepted,calls,failPrevious=nil,0,false

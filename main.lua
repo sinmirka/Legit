@@ -138,10 +138,12 @@ local config={
 local engine,melee,tools,logger
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
+    local character=game:GetService('Players').LocalPlayer.Character
+    local equipped=character and character:FindFirstChildOfClass('Tool')
     local data={AimStatus=engine and engine.Status or 'not started',MeleeStatus=melee and melee.Status or 'not started',
         MeleeEnabled=config.Melee.Enabled,AutoAttack=config.Melee.AutoAttack,Range=config.Melee.Range,
         Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,
-        EquippedTool=melee and melee.tool and melee.tool.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
+        EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     return data
 end
