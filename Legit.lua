@@ -17617,6 +17617,7 @@ MeleeAura.WeaponNames={'Wrench','Crowbar','Golf Club','Shovel','Bat','Baton','Me
     'Clippers','X-Fist','Sabre'}
 local function weaponKey(name) return (name:lower():gsub('[%s%p]','')) end
 local weapons={}
+local fistFamilies={fists=true,zombiefists=true,infectedfists=true,xfist=true,xfists=true}
 for _,name in ipairs(MeleeAura.WeaponNames) do weapons[weaponKey(name)]=true end
 for _,alias in ipairs({"Slayer's I","Slayer's II",'Military Machete','Necromancer Scythe',
     'Cash Cane','Golden Katana','Voidedge Katana','RIPPER Chainsaw','COPE Axe'}) do
@@ -17624,7 +17625,8 @@ for _,alias in ipairs({"Slayer's I","Slayer's II",'Military Machete','Necromance
 end
 function MeleeAura:IsMeleeTool(tool)
     if not tool then return false end
-    if weapons[weaponKey(tool.Name)] then return true end
+    local key=weaponKey(tool.Name)
+    if weapons[key] or fistFamilies[key:match('^(%a+)%d*$')] then return true end
     -- Observed Criminality tool layout; supports renamed/skinned melee tools.
     -- Called by Step only, never by the Raycast dispatcher.
     local module=tool:FindFirstChild('Melee')

@@ -127,6 +127,14 @@ for _,name in ipairs({'Metal-Bat','Golfclub','fire_axe',"Slayer's II",'Cash Cane
 end
 tool.Name='AK-47'; assert(not aura:IsMeleeTool(tool),'unrelated gun rejected')
 tool.Name='Katana Gun'; assert(not aura:IsMeleeTool(tool),'no substring weapon matches')
+for _,name in ipairs({'__ZombieFists1','__ZombieFists2','__ZombieFists123','__ZombieFists',
+    '__Fists1','__InfectedFists3','__X-Fist2','__zOmBiEfIsTs42'}) do
+    tool.Name=name; aura:Step(13.61)
+    assert(aura:IsMeleeTool(tool) and aura.tool==tool and aura.target,'numbered fists usable by aura: '..name)
+end
+for _,name in ipairs({'GunFists','__ZombieFists1Gun','__ZombieFistsLauncher','Pistol2'}) do
+    tool.Name=name; assert(not aura:IsMeleeTool(tool),'fist-family match is anchored: '..name)
+end
 tool.Name='Custom melee skin'
 tool.Children.Melee=Instance.new('ModuleScript'); tool.Children.AnimsFolder=Instance.new('Folder')
 tool.Children.WeaponHandle=Instance.new('Part')
