@@ -93,6 +93,10 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false},
+    World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
+        Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
+        BloomSize=24,BloomThreshold=1,ColorEnabled=false,Brightness=0,Contrast=0,Saturation=0,
+        Tint=Color3.new(1,1,1),AtmosphereEnabled=false,Density=0.3,Haze=0,AtmosphereColor=Color3.new(1,1,1)},
     ESP={
         Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=false,SkipFriends=false,
         MaxDistance=1500,RefreshRate=30,Opacity=1,FillOpacity=0.35,OutlineOpacity=1,
@@ -353,6 +357,27 @@ local ok,message=xpcall(function()
     slider(right,'Speed value','Character','Speed',0,150,1)
     right:AddText({text='Jump power or height follows the game jump mode.'})
     right:AddText({text='Server movement limits can still apply.'})
+    left,right=sections('ESP','World','World effects')
+    toggle(left,'Time changer','World','TimeEnabled')
+    slider(left,'Select hours','World','Time',0,24,0.1)
+    toggle(left,'Custom exposure','World','ExposureEnabled')
+    slider(left,'Exposure amount','World','Exposure',-3,3,0.1)
+    toggle(left,'Custom ambience','World','AmbientEnabled')
+    color(left,'Ambient color','World','Ambient')
+    toggle(left,'Remove shadows','World','RemoveShadows')
+    toggle(left,'Custom atmosphere','World','AtmosphereEnabled')
+    slider(left,'Atmosphere density','World','Density',0,1,0.01)
+    slider(left,'Atmosphere haze','World','Haze',0,10,0.1)
+    color(left,'Atmosphere color','World','AtmosphereColor')
+    toggle(right,'Bloom','World','BloomEnabled')
+    slider(right,'Bloom intensity','World','BloomIntensity',0,5,0.01)
+    slider(right,'Bloom size','World','BloomSize',0,56,1)
+    slider(right,'Bloom threshold','World','BloomThreshold',0,3,0.01)
+    toggle(right,'Color correction','World','ColorEnabled')
+    slider(right,'Brightness','World','Brightness',-1,1,0.01)
+    slider(right,'Contrast','World','Contrast',-1,1,0.01)
+    slider(right,'Saturation','World','Saturation',-1,1,0.01)
+    color(right,'Tint','World','Tint')
     left,right=sections('Profiles','Local profiles','Interface')
     local profileName='default'
     left:AddBox({text='Profile name',flag='profile_name',input=profileName,callback=function(value) profileName=value end})

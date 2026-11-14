@@ -55,6 +55,35 @@ assert(newHum.LastState==Enum.HumanoidStateType.Jumping,'infinite jump signal')
 newHum.LastState=nil; app.Engine.focused=false
 MOCK.services.UserInputService.JumpRequest:Fire(); assert(not newHum.LastState,'infinite jump focus guard')
 app.Engine.focused=true
+local beforeAmbient=lighting.Ambient
+option('World_Time'):SetValue(3); option('World_TimeEnabled'):SetState(true)
+option('World_RemoveShadows'):SetState(true)
+option('World_AmbientEnabled'):SetState(true)
+assert(lighting.ClockTime==3 and not lighting.GlobalShadows and lighting.Ambient==w.Ambient,'world overrides')
+option('World_TimeEnabled'):SetState(false)
+option('World_RemoveShadows'):SetState(false)
+option('World_AmbientEnabled'):SetState(false)
+assert(lighting.ClockTime==14 and lighting.GlobalShadows and lighting.Ambient==beforeAmbient,'world restore')
+option('World_ExposureEnabled'):SetState(true)
+lighting.ExposureCompensation=1.2
+option('World_ExposureEnabled'):SetState(false)
+assert(lighting.ExposureCompensation==1.2,'do not overwrite newer game writes on disable')
+option('World_BloomEnabled'):SetState(true); local bloom=tools.effects.Bloom
+option('World_BloomIntensity'):SetValue(2)
+assert(bloom.Intensity==2,'owned bloom controls')
+option('World_BloomEnabled'):SetState(false); assert(bloom.Destroyed,'destroy only owned bloom')
+local originalAtmosphere=Instance.new('Atmosphere'); originalAtmosphere.Parent=lighting
+originalAtmosphere.Density=0.1; originalAtmosphere.Haze=2; originalAtmosphere.Color=Color3.new(0,0,1)
+lighting.Children.Atmosphere=originalAtmosphere
+option('World_AtmosphereEnabled'):SetState(true); assert(originalAtmosphere.Density==w.Density,'existing atmosphere')
+option('World_AtmosphereEnabled'):SetState(false)
+assert(originalAtmosphere.Density==0.1 and not originalAtmosphere.Destroyed,'restore existing atmosphere')
+lighting.Children.Atmosphere=nil
+option('World_AtmosphereEnabled'):SetState(true); local ownedAtmosphere=tools.effects.Atmosphere
+option('World_AtmosphereEnabled'):SetState(false); assert(ownedAtmosphere.Destroyed,'remove owned atmosphere')
+option('World_ColorEnabled'):SetState(true); local colorEffect=tools.effects.ColorCorrection
+local connection=tools.connections[1]
 app:Unload()
-assert(newHum.WalkSpeed==16 and next(tools.applied)==nil,'character cleanup')
-print('PASS universal character controls, property ownership, respawn and jump')
+assert(newHum.WalkSpeed==16 and lighting.ClockTime==14 and colorEffect.Destroyed,'unload restores world and character')
+assert(not connection.Connected and next(tools.applied)==nil and next(tools.effects)==nil,'owned resources released')
+print('PASS universal tools: property ownership, respawn, jump, lighting, effects, player priorities, spectate, profiles and lazy script launchers')

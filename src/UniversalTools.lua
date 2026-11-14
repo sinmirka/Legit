@@ -37,6 +37,16 @@ function Tools:Reconcile(desired)
         end
     end
 end
+function Tools:Effect(name,class,enabled)
+    local effect=self.effects[name]
+    if enabled then
+        if not effect or not effect.Parent then
+            effect=Instance.new(class); effect.Name='Legit'..name; effect.Parent=Lighting
+            self.effects[name]=effect
+        end
+        return effect
+    elseif effect then effect:Destroy(); self.effects[name]=nil end
+end
 function Tools:Step()
     if not self.alive then return end
     local desired={}
@@ -58,7 +68,23 @@ function Tools:Step()
             end
         end
     end
+    if w.TimeEnabled then set(Lighting,'ClockTime',w.Time) end
+    if w.ExposureEnabled then set(Lighting,'ExposureCompensation',w.Exposure) end
+    if w.AmbientEnabled then set(Lighting,'Ambient',w.Ambient); set(Lighting,'OutdoorAmbient',w.Ambient) end
+    if w.RemoveShadows then set(Lighting,'GlobalShadows',false) end
+    local bloom=self:Effect('Bloom','BloomEffect',w.BloomEnabled)
+    if bloom then bloom.Intensity=w.BloomIntensity; bloom.Size=w.BloomSize; bloom.Threshold=w.BloomThreshold end
+    local correction=self:Effect('ColorCorrection','ColorCorrectionEffect',w.ColorEnabled)
+    if correction then
+        correction.Brightness=w.Brightness; correction.Contrast=w.Contrast
+        correction.Saturation=w.Saturation; correction.TintColor=w.Tint
+    end
+    if w.AtmosphereEnabled then
+        local atmosphere=Lighting:FindFirstChildOfClass('Atmosphere') or self:Effect('Atmosphere','Atmosphere',true)
+        set(atmosphere,'Density',w.Density); set(atmosphere,'Haze',w.Haze); set(atmosphere,'Color',w.AtmosphereColor)
+    end
     self:Reconcile(desired)
+    if not w.AtmosphereEnabled then self:Effect('Atmosphere','Atmosphere',false) end
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
@@ -78,6 +104,7 @@ function Tools:Destroy()
     self.alive=false
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
     self:Reconcile({})
+    for name in pairs(self.effects) do self:Effect(name,'',false) end
     self.Selected,self.Spectating=nil,false
 end
 return Tools

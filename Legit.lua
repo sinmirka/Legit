@@ -17795,6 +17795,16 @@ function Tools:Reconcile(desired)
         end
     end
 end
+function Tools:Effect(name,class,enabled)
+    local effect=self.effects[name]
+    if enabled then
+        if not effect or not effect.Parent then
+            effect=Instance.new(class); effect.Name='Legit'..name; effect.Parent=Lighting
+            self.effects[name]=effect
+        end
+        return effect
+    elseif effect then effect:Destroy(); self.effects[name]=nil end
+end
 function Tools:Step()
     if not self.alive then return end
     local desired={}
@@ -17816,7 +17826,23 @@ function Tools:Step()
             end
         end
     end
+    if w.TimeEnabled then set(Lighting,'ClockTime',w.Time) end
+    if w.ExposureEnabled then set(Lighting,'ExposureCompensation',w.Exposure) end
+    if w.AmbientEnabled then set(Lighting,'Ambient',w.Ambient); set(Lighting,'OutdoorAmbient',w.Ambient) end
+    if w.RemoveShadows then set(Lighting,'GlobalShadows',false) end
+    local bloom=self:Effect('Bloom','BloomEffect',w.BloomEnabled)
+    if bloom then bloom.Intensity=w.BloomIntensity; bloom.Size=w.BloomSize; bloom.Threshold=w.BloomThreshold end
+    local correction=self:Effect('ColorCorrection','ColorCorrectionEffect',w.ColorEnabled)
+    if correction then
+        correction.Brightness=w.Brightness; correction.Contrast=w.Contrast
+        correction.Saturation=w.Saturation; correction.TintColor=w.Tint
+    end
+    if w.AtmosphereEnabled then
+        local atmosphere=Lighting:FindFirstChildOfClass('Atmosphere') or self:Effect('Atmosphere','Atmosphere',true)
+        set(atmosphere,'Density',w.Density); set(atmosphere,'Haze',w.Haze); set(atmosphere,'Color',w.AtmosphereColor)
+    end
     self:Reconcile(desired)
+    if not w.AtmosphereEnabled then self:Effect('Atmosphere','Atmosphere',false) end
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
@@ -17836,6 +17862,7 @@ function Tools:Destroy()
     self.alive=false
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
     self:Reconcile({})
+    for name in pairs(self.effects) do self:Effect(name,'',false) end
     self.Selected,self.Spectating=nil,false
 end
 return Tools
@@ -17935,6 +17962,10 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false},
+    World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
+        Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
+        BloomSize=24,BloomThreshold=1,ColorEnabled=false,Brightness=0,Contrast=0,Saturation=0,
+        Tint=Color3.new(1,1,1),AtmosphereEnabled=false,Density=0.3,Haze=0,AtmosphereColor=Color3.new(1,1,1)},
     ESP={
         Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=false,SkipFriends=false,
         MaxDistance=1500,RefreshRate=30,Opacity=1,FillOpacity=0.35,OutlineOpacity=1,
@@ -18195,6 +18226,27 @@ local ok,message=xpcall(function()
     slider(right,'Speed value','Character','Speed',0,150,1)
     right:AddText({text='Jump power or height follows the game jump mode.'})
     right:AddText({text='Server movement limits can still apply.'})
+    left,right=sections('ESP','World','World effects')
+    toggle(left,'Time changer','World','TimeEnabled')
+    slider(left,'Select hours','World','Time',0,24,0.1)
+    toggle(left,'Custom exposure','World','ExposureEnabled')
+    slider(left,'Exposure amount','World','Exposure',-3,3,0.1)
+    toggle(left,'Custom ambience','World','AmbientEnabled')
+    color(left,'Ambient color','World','Ambient')
+    toggle(left,'Remove shadows','World','RemoveShadows')
+    toggle(left,'Custom atmosphere','World','AtmosphereEnabled')
+    slider(left,'Atmosphere density','World','Density',0,1,0.01)
+    slider(left,'Atmosphere haze','World','Haze',0,10,0.1)
+    color(left,'Atmosphere color','World','AtmosphereColor')
+    toggle(right,'Bloom','World','BloomEnabled')
+    slider(right,'Bloom intensity','World','BloomIntensity',0,5,0.01)
+    slider(right,'Bloom size','World','BloomSize',0,56,1)
+    slider(right,'Bloom threshold','World','BloomThreshold',0,3,0.01)
+    toggle(right,'Color correction','World','ColorEnabled')
+    slider(right,'Brightness','World','Brightness',-1,1,0.01)
+    slider(right,'Contrast','World','Contrast',-1,1,0.01)
+    slider(right,'Saturation','World','Saturation',-1,1,0.01)
+    color(right,'Tint','World','Tint')
     left,right=sections('Profiles','Local profiles','Interface')
     local profileName='default'
     left:AddBox({text='Profile name',flag='profile_name',input=profileName,callback=function(value) profileName=value end})
