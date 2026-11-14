@@ -45,4 +45,16 @@ window:Destroy(); window:Destroy()
 for _,signal in ipairs({MOCK.services.UserInputService.InputBegan,MOCK.services.UserInputService.InputChanged,MOCK.services.UserInputService.InputEnded}) do
     for _,entry in ipairs(signal.handlers) do assert(not entry[1].Connected,'global Neverlose input connection leaked') end
 end
+local contractLoader=loadstring
+loadstring=function(source,name)
+    if name=='@Legit/vendor/Neverlose/Library.lua' then return function() return native end end
+    return contractLoader(source,name)
+end
+local app=assert(loadstring(SOURCES['main.lua']))()
+assert(app.Alive and #app.Library.windows[1].tabs==8,'full application starts with real Neverlose widgets')
+app.Library.options.ObjectESP_MaxDistance:SetValue(500)
+app.Library.options.Character_SpeedMethod:Select('Velocity')
+assert(app.Config.ObjectESP.MaxDistance==500 and app.Config.Character.SpeedMethod=='Velocity','real application callbacks')
+app:Unload()
+assert(not app.Library.Alive and app.Library.Window.Destroyed,'full application native cleanup')
 print('PASS real Neverlose widgets: no demo, setters, alpha, groups, hide and global input cleanup (engine doubles, no rendering proof)')
