@@ -5,7 +5,7 @@ assert(#app.Library.windows[1].tabs==8,'eight tabs')
 local count=0
 for _ in pairs(app.Library.options) do count+=1 end
 assert(count>=90,'expected extensive settings: '..count)
-print('PASS Neverlose application startup and '..count..' UI options (API contract double)')
+print('PASS Iris application startup and '..count..' UI options (API contract double)')
 local function option(name) return assert(app.Library.options[name],name) end
 option('ESP_Enabled'):SetState(true)
 option('ESP_FillOpacity'):SetValue(0.6)

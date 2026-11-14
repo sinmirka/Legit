@@ -1,4 +1,4 @@
--- Legit | Neverlose UI. Entry point for the README loadstring.
+-- Legit | Iris UI. Entry point for the README loadstring.
 local bundledFiles=...
 local BASE='https://raw.githubusercontent.com/sinmirka/Legit/main/'
 -- BEGIN HTTP TRANSPORT
@@ -83,8 +83,8 @@ local renderMode='GUI'
 local renderer=remote('src/GuiDrawing.lua')().new(game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui'))
 local drawingAPI=renderer
 local loaded,library=pcall(function()
-    local native=remote('vendor/Neverlose/Library.lua')()
-    return remote('src/NeverloseUI.lua')().new(native)
+    local native=remote('vendor/Iris/Bundle.lua')()
+    return remote('src/IrisUI.lua')().new(native)
 end)
 if not loaded then if renderer then renderer:Destroy() end; error('[Legit] '..tostring(library),0) end
 library.toggleKey=Enum.KeyCode.RightShift
@@ -159,6 +159,8 @@ function app:DebugContext()
     data.InstantInteraction=config.Interaction.Instant
     data.ObjectESPStatus=objects and objects.Status or 'not started'
     data.SpeedMethod='Velocity'
+    data.UI='Iris'
+    data.UIRenderError=library.LastRenderError or 'none'
     data.SpeedStatus=tools and tools.SpeedStatus or 'not started'
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
@@ -653,6 +655,7 @@ local ok,message=xpcall(function()
     engine:Connect(game:GetService('UserInputService').InputBegan,function(input,processed)
         if not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end
     end)
+    library:Start()
     engine:Start()
     melee:Start()
     silent:Start()
