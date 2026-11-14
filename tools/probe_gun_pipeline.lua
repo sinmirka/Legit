@@ -8,7 +8,7 @@ for _,path in ipairs({'Legit','Legit/Universal','Legit/Universal/probes',root}) 
         if not ok and not (type(isfolder)=='function' and isfolder(path)) then error(problem) end
     end
 end
-local rows={'Legit gun pipeline probe v2','PlaceId='..tostring(game.PlaceId)}
+local rows={'Legit gun pipeline probe v3','PlaceId='..tostring(game.PlaceId)}
 for _,name in ipairs({'decompile','hookfunction','hookmetamethod','getnamecallmethod','checkcaller','getcallingscript'}) do
     table.insert(rows,name..'='..type(getfenv()[name]))
 end
@@ -34,6 +34,9 @@ local function inspect(script,label)
     count+=1; note(label..': exported '..filename..' ('..#source..' bytes)')
 end
 local storage=game:GetService('ReplicatedStorage')
+local effects=pathFrom(storage,{'NewModules','Client','Services','Effects'})
+inspect(effects,'client-Effects')
+inspect(effects and effects:FindFirstChild('Shoot'),'client-Effects-Shoot')
 inspect(pathFrom(storage,{'NewModules','Shared','Extensions','LoadGun'}),'extension-LoadGun')
 for _,name in ipairs({'RayHandler','FastCastRedux'}) do
     inspect(pathFrom(storage,{'NewModules','Shared','Services',name}),'service-'..name)
@@ -68,6 +71,10 @@ local app=getgenv().Legit
 if app and app.Logger and app.DebugContext then
     local ok,report=pcall(function() return app.Logger:Report(app:DebugContext()) end)
     if ok then writefile(root..'/legit-report.txt',report) else note('Report export failed: '..tostring(report)) end
+    note('LegitLoaded=true; DiagnosticsEnabled='..tostring(app.Logger.settings.Enabled))
+else
+    note('LegitLoaded=false; no current combat report available')
+    writefile(root..'/legit-report.txt','No active Legit instance during this probe. Previous report replaced to avoid stale diagnostics.\n')
 end
 note('ExportedScripts='..count)
 local report=table.concat(rows,'\n')..'\n'
