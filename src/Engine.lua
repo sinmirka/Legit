@@ -5,6 +5,7 @@ local Input = game:GetService('UserInputService')
 local Http = game:GetService('HttpService')
 local Engine = {}
 Engine.__index = Engine
+local friendGreen=Color3.fromRGB(80,235,130)
 
 local skeleton = {
     {'Head','UpperTorso'}, {'UpperTorso','LowerTorso'},
@@ -277,7 +278,11 @@ function Engine:Bounds(character, camera)
     if right < 0 or bottom < 0 or left > viewport.X or top > viewport.Y then return nil end
     return Vector2.new(left,top), Vector2.new(math.max(1,right-left),math.max(1,bottom-top))
 end
+function Engine:FriendColor(other)
+    if self.friends[other]==true or self.playerModes[other.UserId]=='Friend' then return friendGreen end
+end
 function Engine:Colors(other, visible, now)
+    local friend=self:FriendColor(other)
     local e, c = self.config.ESP, self.config.Colors
     local fillKey,outlineKey='Fill','Outline'
     if e.VisibleColors then fillKey,outlineKey=visible and 'VisibleFill' or 'HiddenFill',visible and 'VisibleOutline' or 'HiddenOutline' end
@@ -285,6 +290,7 @@ function Engine:Colors(other, visible, now)
     if e.TeamColors and not other.Neutral then fill,outline=other.TeamColor.Color,other.TeamColor.Color; fillKey,outlineKey='Fill','Outline' end
     if e.Rainbow then fill=Color3.fromHSV((now*e.RainbowSpeed)%1,0.8,1); outline=fill; fillKey,outlineKey='Fill','Outline' end
     if e.TargetColor and other == self.target then fill,outline=c.Target,c.Target; fillKey,outlineKey='Target','Target' end
+    if friend then fill,outline=friend,friend end
     return fill,outline,self:Opacity('Colors',fillKey),self:Opacity('Colors',outlineKey)
 end
 function Engine:DrawOverlay(record, other, character, humanoid, root, camera, distance, color, opacity, colorOpacity)
@@ -293,8 +299,9 @@ function Engine:DrawOverlay(record, other, character, humanoid, root, camera, di
     local position, size = self:Bounds(character, camera)
     if not position then return end
     local bottomCenter = position + Vector2.new(size.X/2,size.Y)
-    local boxColor = o.MatchESP and color or self.config.Colors.Box
-    local boxOpacity=opacity*(o.MatchESP and colorOpacity or self:Opacity('Colors','Box'))
+    local friend=self:FriendColor(other)
+    local boxColor = friend or (o.MatchESP and color or self.config.Colors.Box)
+    local boxOpacity=opacity*((friend or o.MatchESP) and colorOpacity or self:Opacity('Colors','Box'))
     if o.Box then
         record.Fill.Position, record.Fill.Size = position,size
         record.Fill.Color, record.Fill.Transparency, record.Fill.Visible = boxColor,o.FillOpacity*boxOpacity,o.BoxFill
@@ -324,7 +331,7 @@ function Engine:DrawOverlay(record, other, character, humanoid, root, camera, di
         local viewport = camera.ViewportSize
         local y = o.TracerOrigin == 'Top' and 0 or o.TracerOrigin == 'Center' and viewport.Y/2 or viewport.Y
         record.Tracer.From,record.Tracer.To = Vector2.new(viewport.X/2,y),bottomCenter
-        record.Tracer.Color,record.Tracer.Thickness = self.config.Colors.Tracer,o.TracerThickness
+        record.Tracer.Color,record.Tracer.Thickness = friend or self.config.Colors.Tracer,o.TracerThickness
         record.Tracer.Transparency,record.Tracer.Visible = opacity*self:Opacity('Colors','Tracer'),true
     end
     if o.HealthBar then
@@ -345,7 +352,7 @@ function Engine:DrawOverlay(record, other, character, humanoid, root, camera, di
                 local p2,on2 = point(camera,to.Position)
                 local line = record.Bones[i]
                 line.From,line.To,line.Visible = p1,p2,on1 and on2
-                line.Color,line.Thickness,line.Transparency = self.config.Colors.Skeleton,o.SkeletonThickness,opacity*self:Opacity('Colors','Skeleton')
+                line.Color,line.Thickness,line.Transparency = friend or self.config.Colors.Skeleton,o.SkeletonThickness,opacity*self:Opacity('Colors','Skeleton')
             end
         end
     end
@@ -365,7 +372,7 @@ function Engine:DrawOverlay(record, other, character, humanoid, root, camera, di
         local labels = {record.TopText,record.BottomText}
         for _, label in ipairs(labels) do
             label.Size,label.Font,label.Outline = l.Size,({UI=0,System=1,Plex=2,Monospace=3})[l.Font],false
-            label.Color,label.OutlineColor = self.config.Colors.Text,self.config.Colors.TextOutline
+            label.Color,label.OutlineColor = friend or self.config.Colors.Text,self.config.Colors.TextOutline
             label.Transparency = opacity*l.Opacity*self:Opacity('Colors','Text')
         end
         record.TopText.Text = table.concat(top,'\n')
