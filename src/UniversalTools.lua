@@ -83,8 +83,32 @@ function Tools:Step()
         local atmosphere=Lighting:FindFirstChildOfClass('Atmosphere') or self:Effect('Atmosphere','Atmosphere',true)
         set(atmosphere,'Density',w.Density); set(atmosphere,'Haze',w.Haze); set(atmosphere,'Color',w.AtmosphereColor)
     end
+    -- A selected player can respawn, leave or lose their camera subject at any time.
+    local selected=self.Selected
+    if self.Spectating and selected and selected.Parent==Players then
+        local target=humanoid(selected)
+        if target and target.Health>0 then set(workspace.CurrentCamera,'CameraSubject',target) end
+    end
     self:Reconcile(desired)
     if not w.AtmosphereEnabled then self:Effect('Atmosphere','Atmosphere',false) end
+end
+function Tools:SetSelected(player)
+    self.Selected=player
+    self:Step()
+end
+function Tools:SetSpectating(value) self.Spectating=value; self:Step() end
+function Tools:PlayerList(query)
+    query=(query or ''):lower()
+    local values,map={},{}
+    for _,player in ipairs(Players:GetPlayers()) do
+        if player~=Players.LocalPlayer and (query=='' or player.Name:lower():find(query,1,true)
+            or player.DisplayName:lower():find(query,1,true)) then
+            local label=player.DisplayName..' (@'..player.Name..')'
+            table.insert(values,label); map[label]=player
+        end
+    end
+    table.sort(values)
+    return values,map
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
@@ -97,7 +121,10 @@ function Tools:Start()
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
         end
     end)
-
+    connect(Players.PlayerRemoving,function(player)
+        if self.Selected==player then self.Selected=nil; self:SetSpectating(false) end
+        self.engine.playerModes[player.UserId]=nil
+    end)
 end
 function Tools:Destroy()
     if not self.alive then return end

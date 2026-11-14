@@ -3,7 +3,7 @@ local aura,s=app.MeleeAura,app.Config.Melee
 local players=MOCK.players
 local vec=MOCK.vec
 local function player(id,x)
-    local p={UserId=id,Name='Melee'..id,Parent=players,Neutral=false,Team={}}
+    local p={UserId=id,Name='Melee'..id,DisplayName='Melee'..id,Parent=players,Neutral=false,Team={}}
     local char=Instance.new('Model'); char.Parent=workspace; p.Character=char
     for _,name in ipairs({'Head','Torso','HumanoidRootPart'}) do
         local part=Instance.new('Part'); part.Name=name; part.Position=vec(x,0,0); part.Parent=char

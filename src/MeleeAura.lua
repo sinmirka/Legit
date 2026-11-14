@@ -134,8 +134,9 @@ function MeleeAura:Step(now)
     local best
     for _,player in ipairs(Players:GetPlayers()) do
         local candidate=self:Candidate(player,root)
-        if candidate and (not best or candidate.Score<best.Score
-            or (candidate.Score==best.Score and player.UserId<best.Player.UserId)) then best=candidate end
+        if candidate and (not best or self.engine:TargetRank(player)<self.engine:TargetRank(best.Player)
+            or (self.engine:TargetRank(player)==self.engine:TargetRank(best.Player) and (candidate.Score<best.Score
+                or (candidate.Score==best.Score and player.UserId<best.Player.UserId)))) then best=candidate end
     end
     self.target=best
     self.Status=best and ('Target: @'..best.Player.Name) or 'No target in range'

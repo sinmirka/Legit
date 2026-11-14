@@ -378,6 +378,45 @@ local ok,message=xpcall(function()
     slider(right,'Contrast','World','Contrast',-1,1,0.01)
     slider(right,'Saturation','World','Saturation',-1,1,0.01)
     color(right,'Tint','World','Tint')
+    left,right=sections('Players','Player list','Selected player')
+    local search,playerMap,selectedLabel,mode='',{},nil,'Neutral'
+    local playerList,details
+    local function updateDetails()
+        local player=tools.Selected
+        if not player then details:SetText('Display name: —\nUsername: —\nPriority: —'); return end
+        details:SetText('Display name: '..player.DisplayName..'\nUsername: @'..player.Name..'\nPriority: '..(engine.playerModes[player.UserId] or 'Neutral'))
+    end
+    local function refreshPlayers(leaving)
+        local values,map=tools:PlayerList(search)
+        if leaving then
+            for label,player in pairs(map) do
+                if player==leaving then map[label]=nil; local index=table.find(values,label); if index then table.remove(values,index) end end
+            end
+            if tools.Selected==leaving then tools:SetSelected(nil); tools:SetSpectating(false) end
+        end
+        playerMap=map
+        playerList:SetValues(values)
+        if not map[selectedLabel] then selectedLabel=nil end
+        playerList:Select(selectedLabel,true)
+        updateDetails()
+    end
+    left:AddBox({text='Search players',flag='Players_Search',input='',callback=function(value) search=value; refreshPlayers() end})
+    playerList=left:AddList({text='Display name / Username',flag='Players_Selected',values={},callback=function(label)
+        selectedLabel=label; tools:SetSelected(playerMap[label]); updateDetails()
+    end})
+    details=right:AddText({text='Display name: —\nUsername: —\nPriority: —'})
+    right:AddList({text='Priority',flag='Players_Priority',values={'Neutral','Friend','Enemy'},selected='Neutral',callback=function(value) mode=value end})
+    right:AddButton({text='Apply priority',callback=function()
+        if tools.Selected then engine.playerModes[tools.Selected.UserId]=mode; engine:ResetTarget(); melee:Reset(); updateDetails() end
+    end})
+    right:AddButton({text='Spectate selected',callback=function()
+        if tools.Selected then tools:SetSpectating(true) else library:SendNotification('Select a player first',4) end
+    end})
+    right:AddButton({text='Stop spectating',callback=function() tools:SetSpectating(false) end})
+    right:AddText({text='Friend: excluded from aim and melee. Enemy: preferred among eligible targets. Priority is session-only.'})
+    refreshPlayers()
+    engine:Connect(game:GetService('Players').PlayerAdded,function() refreshPlayers() end)
+    engine:Connect(game:GetService('Players').PlayerRemoving,function(player) refreshPlayers(player) end)
     left,right=sections('Profiles','Local profiles','Interface')
     local profileName='default'
     left:AddBox({text='Profile name',flag='profile_name',input=profileName,callback=function(value) profileName=value end})

@@ -81,6 +81,41 @@ assert(originalAtmosphere.Density==0.1 and not originalAtmosphere.Destroyed,'res
 lighting.Children.Atmosphere=nil
 option('World_AtmosphereEnabled'):SetState(true); local ownedAtmosphere=tools.effects.Atmosphere
 option('World_AtmosphereEnabled'):SetState(false); assert(ownedAtmosphere.Destroyed,'remove owned atmosphere')
+local labels,map=tools:PlayerList('aLpHa')
+assert(#labels==1 and map[labels[1]]==other,'literal case-insensitive player search')
+assert(#tools:PlayerList('[abc')==0,'search does not interpret patterns')
+option('Players_Search'):SetInput('Alpha')
+local playerLabel='Display Alpha (@Alpha)'
+option('Players_Selected'):Select(playerLabel)
+assert(tools.Selected==other,'UI player selection')
+option('Players_Priority'):Select('Friend'); button('Apply priority').callback()
+assert(not app.Engine:Allowed(other,app.Config.Aim) and not app.Engine:Allowed(other,app.Config.Melee),'Friend excluded from combat')
+assert(app.Engine:Allowed(other,app.Config.ESP),'Friend remains visible in ESP')
+option('Players_Priority'):Select('Enemy'); button('Apply priority').callback()
+assert(app.Engine:TargetRank(other)<app.Engine:TargetRank(enemy),'Enemy rank')
+local a=app.Config.Aim; a.Sticky=false; a.WallCheck=false
+app.Engine.playerModes[other.UserId]=nil; app.Engine.playerModes[enemy.UserId]='Enemy'
+local _,_,currentRoot=makePlayer(9,'unused')
+local candidate=app.Engine:Choose(workspace.CurrentCamera,newFixture.Character.Children.HumanoidRootPart,100)
+assert(candidate and candidate.Player==enemy,'Aim prefers an eligible Enemy over nearer Neutral')
+app.Config.Melee.Enabled=true; app.Config.Melee.PauseMenu=false; app.Config.Melee.AutoAttack=false
+-- Test the shared Melee selection path without depending on executor hooks.
+app.MeleeAura.InstallHook=function() return true end
+local tool=Instance.new('Tool'); tool.Name='Fists'; tool.Enabled=true; tool.Parent=newFixture.Character
+newFixture.Character.Children.Tool=tool
+app.MeleeAura:Step(101)
+assert(app.MeleeAura.target and app.MeleeAura.target.Player==enemy,'Melee prefers eligible Enemy')
+local camera=workspace.CurrentCamera; camera.CameraSubject=newHum
+button('Spectate selected').callback(); assert(camera.CameraSubject==otherHum,'spectate selection')
+button('Stop spectating').callback(); assert(camera.CameraSubject==newHum,'restore camera subject')
+button('Spectate selected').callback()
+players.PlayerRemoving:Fire(other)
+assert(not tools.Selected and not tools.Spectating and camera.CameraSubject==newHum,'leaving target restores camera')
+option('World_TimeEnabled'):SetState(true); option('Character_WalkSpeed'):SetState(true)
+button('Save profile').callback()
+option('World_Time'):SetValue(8); option('Character_Speed'):SetValue(70)
+button('Load profile').callback()
+assert(lighting.ClockTime==3 and newHum.WalkSpeed==35,'universal profile roundtrip')
 option('World_ColorEnabled'):SetState(true); local colorEffect=tools.effects.ColorCorrection
 local connection=tools.connections[1]
 app:Unload()

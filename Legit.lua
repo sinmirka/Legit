@@ -16969,7 +16969,7 @@ function UI:CreateWindow(data)
 end
 return UI
 ]====]
-files["src/Engine.lua"]=[====[-- Rendering and camera targeting. UI is owned by src/NativeUI.lua.
+files["src/Engine.lua"]=[====[-- Rendering and camera targeting. UI is owned by Obsidian via src/ObsidianUI.lua.
 local Players = game:GetService('Players')
 local RunService = game:GetService('RunService')
 local Input = game:GetService('UserInputService')
@@ -17019,6 +17019,7 @@ function Engine.new(config, library, renderer)
     self.Drawing=renderer or Drawing
     self.player = Players.LocalPlayer
     self.records, self.connections, self.friends = {}, {}, {}
+    self.playerModes={}
     self.held, self.toggled, self.focused = false, false, true
     self.alive, self.target = true, nil
     self.pending, self.pendingSince, self.lastSwitch = nil, 0, -math.huge
@@ -17051,10 +17052,12 @@ function Engine:TrackFriend(other)
 end
 function Engine:Allowed(other, settings)
     if other == self.player or other.Parent ~= Players then return false end
+    if self.playerModes[other.UserId]=='Friend' and (settings==self.config.Aim or settings==self.config.Melee) then return false end
     if settings.TeamCheck and sameTeam(self.player, other) then return false end
     if settings.SkipFriends and self.friends[other] then return false end
     return true
 end
+function Engine:TargetRank(other) return self.playerModes[other.UserId]=='Enemy' and 0 or 1 end
 function Engine:Visible(character, position, camera)
     local delta = position - camera.CFrame.Position
     if delta.Magnitude < 0.01 then return true end
@@ -17106,7 +17109,9 @@ function Engine:Choose(camera, root, now)
     for _, other in ipairs(Players:GetPlayers()) do
         local candidate,reason = self:Candidate(other, camera, root)
         if not candidate and reason~='self' then self.Rejected[reason or 'other']=(self.Rejected[reason or 'other'] or 0)+1 end
-        if candidate and (not best or candidate.Score < best.Score or (candidate.Score == best.Score and other.UserId < best.Player.UserId)) then
+        if candidate and (not best or self:TargetRank(other)<self:TargetRank(best.Player)
+            or (self:TargetRank(other)==self:TargetRank(best.Player) and (candidate.Score < best.Score
+                or (candidate.Score == best.Score and other.UserId < best.Player.UserId)))) then
             best = candidate
         end
     end
@@ -17731,8 +17736,9 @@ function MeleeAura:Step(now)
     local best
     for _,player in ipairs(Players:GetPlayers()) do
         local candidate=self:Candidate(player,root)
-        if candidate and (not best or candidate.Score<best.Score
-            or (candidate.Score==best.Score and player.UserId<best.Player.UserId)) then best=candidate end
+        if candidate and (not best or self.engine:TargetRank(player)<self.engine:TargetRank(best.Player)
+            or (self.engine:TargetRank(player)==self.engine:TargetRank(best.Player) and (candidate.Score<best.Score
+                or (candidate.Score==best.Score and player.UserId<best.Player.UserId)))) then best=candidate end
     end
     self.target=best
     self.Status=best and ('Target: @'..best.Player.Name) or 'No target in range'
@@ -17841,8 +17847,32 @@ function Tools:Step()
         local atmosphere=Lighting:FindFirstChildOfClass('Atmosphere') or self:Effect('Atmosphere','Atmosphere',true)
         set(atmosphere,'Density',w.Density); set(atmosphere,'Haze',w.Haze); set(atmosphere,'Color',w.AtmosphereColor)
     end
+    -- A selected player can respawn, leave or lose their camera subject at any time.
+    local selected=self.Selected
+    if self.Spectating and selected and selected.Parent==Players then
+        local target=humanoid(selected)
+        if target and target.Health>0 then set(workspace.CurrentCamera,'CameraSubject',target) end
+    end
     self:Reconcile(desired)
     if not w.AtmosphereEnabled then self:Effect('Atmosphere','Atmosphere',false) end
+end
+function Tools:SetSelected(player)
+    self.Selected=player
+    self:Step()
+end
+function Tools:SetSpectating(value) self.Spectating=value; self:Step() end
+function Tools:PlayerList(query)
+    query=(query or ''):lower()
+    local values,map={},{}
+    for _,player in ipairs(Players:GetPlayers()) do
+        if player~=Players.LocalPlayer and (query=='' or player.Name:lower():find(query,1,true)
+            or player.DisplayName:lower():find(query,1,true)) then
+            local label=player.DisplayName..' (@'..player.Name..')'
+            table.insert(values,label); map[label]=player
+        end
+    end
+    table.sort(values)
+    return values,map
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
@@ -17855,7 +17885,10 @@ function Tools:Start()
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
         end
     end)
-
+    connect(Players.PlayerRemoving,function(player)
+        if self.Selected==player then self.Selected=nil; self:SetSpectating(false) end
+        self.engine.playerModes[player.UserId]=nil
+    end)
 end
 function Tools:Destroy()
     if not self.alive then return end
@@ -18247,6 +18280,45 @@ local ok,message=xpcall(function()
     slider(right,'Contrast','World','Contrast',-1,1,0.01)
     slider(right,'Saturation','World','Saturation',-1,1,0.01)
     color(right,'Tint','World','Tint')
+    left,right=sections('Players','Player list','Selected player')
+    local search,playerMap,selectedLabel,mode='',{},nil,'Neutral'
+    local playerList,details
+    local function updateDetails()
+        local player=tools.Selected
+        if not player then details:SetText('Display name: —\nUsername: —\nPriority: —'); return end
+        details:SetText('Display name: '..player.DisplayName..'\nUsername: @'..player.Name..'\nPriority: '..(engine.playerModes[player.UserId] or 'Neutral'))
+    end
+    local function refreshPlayers(leaving)
+        local values,map=tools:PlayerList(search)
+        if leaving then
+            for label,player in pairs(map) do
+                if player==leaving then map[label]=nil; local index=table.find(values,label); if index then table.remove(values,index) end end
+            end
+            if tools.Selected==leaving then tools:SetSelected(nil); tools:SetSpectating(false) end
+        end
+        playerMap=map
+        playerList:SetValues(values)
+        if not map[selectedLabel] then selectedLabel=nil end
+        playerList:Select(selectedLabel,true)
+        updateDetails()
+    end
+    left:AddBox({text='Search players',flag='Players_Search',input='',callback=function(value) search=value; refreshPlayers() end})
+    playerList=left:AddList({text='Display name / Username',flag='Players_Selected',values={},callback=function(label)
+        selectedLabel=label; tools:SetSelected(playerMap[label]); updateDetails()
+    end})
+    details=right:AddText({text='Display name: —\nUsername: —\nPriority: —'})
+    right:AddList({text='Priority',flag='Players_Priority',values={'Neutral','Friend','Enemy'},selected='Neutral',callback=function(value) mode=value end})
+    right:AddButton({text='Apply priority',callback=function()
+        if tools.Selected then engine.playerModes[tools.Selected.UserId]=mode; engine:ResetTarget(); melee:Reset(); updateDetails() end
+    end})
+    right:AddButton({text='Spectate selected',callback=function()
+        if tools.Selected then tools:SetSpectating(true) else library:SendNotification('Select a player first',4) end
+    end})
+    right:AddButton({text='Stop spectating',callback=function() tools:SetSpectating(false) end})
+    right:AddText({text='Friend: excluded from aim and melee. Enemy: preferred among eligible targets. Priority is session-only.'})
+    refreshPlayers()
+    engine:Connect(game:GetService('Players').PlayerAdded,function() refreshPlayers() end)
+    engine:Connect(game:GetService('Players').PlayerRemoving,function(player) refreshPlayers(player) end)
     left,right=sections('Profiles','Local profiles','Interface')
     local profileName='default'
     left:AddBox({text='Profile name',flag='profile_name',input=profileName,callback=function(value) profileName=value end})

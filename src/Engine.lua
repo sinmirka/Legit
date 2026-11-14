@@ -1,4 +1,4 @@
--- Rendering and camera targeting. UI is owned by src/NativeUI.lua.
+-- Rendering and camera targeting. UI is owned by Obsidian via src/ObsidianUI.lua.
 local Players = game:GetService('Players')
 local RunService = game:GetService('RunService')
 local Input = game:GetService('UserInputService')
@@ -48,6 +48,7 @@ function Engine.new(config, library, renderer)
     self.Drawing=renderer or Drawing
     self.player = Players.LocalPlayer
     self.records, self.connections, self.friends = {}, {}, {}
+    self.playerModes={}
     self.held, self.toggled, self.focused = false, false, true
     self.alive, self.target = true, nil
     self.pending, self.pendingSince, self.lastSwitch = nil, 0, -math.huge
@@ -80,10 +81,12 @@ function Engine:TrackFriend(other)
 end
 function Engine:Allowed(other, settings)
     if other == self.player or other.Parent ~= Players then return false end
+    if self.playerModes[other.UserId]=='Friend' and (settings==self.config.Aim or settings==self.config.Melee) then return false end
     if settings.TeamCheck and sameTeam(self.player, other) then return false end
     if settings.SkipFriends and self.friends[other] then return false end
     return true
 end
+function Engine:TargetRank(other) return self.playerModes[other.UserId]=='Enemy' and 0 or 1 end
 function Engine:Visible(character, position, camera)
     local delta = position - camera.CFrame.Position
     if delta.Magnitude < 0.01 then return true end
@@ -135,7 +138,9 @@ function Engine:Choose(camera, root, now)
     for _, other in ipairs(Players:GetPlayers()) do
         local candidate,reason = self:Candidate(other, camera, root)
         if not candidate and reason~='self' then self.Rejected[reason or 'other']=(self.Rejected[reason or 'other'] or 0)+1 end
-        if candidate and (not best or candidate.Score < best.Score or (candidate.Score == best.Score and other.UserId < best.Player.UserId)) then
+        if candidate and (not best or self:TargetRank(other)<self:TargetRank(best.Player)
+            or (self:TargetRank(other)==self:TargetRank(best.Player) and (candidate.Score < best.Score
+                or (candidate.Score == best.Score and other.UserId < best.Player.UserId)))) then
             best = candidate
         end
     end
