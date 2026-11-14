@@ -127,7 +127,8 @@ local config={
     Silent={Enabled=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
-        Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12},
+        Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12,
+        ShowTracers=true,ShowOriginalRay=true,ShowTargetGuide=true,TraceDuration=1,TraceThickness=2},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
         TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
@@ -402,6 +403,12 @@ local ok,message=xpcall(function()
     toggle(silentControls,'Silent prediction','Silent','Prediction')
     slider(silentControls,'Silent prediction time','Silent','LeadTime',0,0.4,0.005,' s')
     slider(silentControls,'Silent minimum HP','Silent','MinHealth',1,100,1)
+    toggle(silentControls,'Show silent shot traces','Silent','ShowTracers')
+    toggle(silentControls,'Show original ray direction','Silent','ShowOriginalRay')
+    toggle(silentControls,'Show silent target guide','Silent','ShowTargetGuide')
+    slider(silentControls,'Shot trace lifetime','Silent','TraceDuration',0.2,3,0.1,' s')
+    slider(silentControls,'Shot trace thickness','Silent','TraceThickness',1,4,0.5,' px')
+    silentControls:AddText({text='Cyan: redirected; orange: unchanged; grey: original; gold: target guide.'})
     silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
     silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})

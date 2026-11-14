@@ -17757,7 +17757,7 @@ function MeleeAura:InstallHook()
     local env=getgenv()
     local state=env.LegitMeleeRaycastHook
     -- Upgrade the old dispatcher once; leave its owner empty so it stays transparent.
-    if state and state.Version~=4 then state.Owner=nil; state.SilentOwner=nil; state=nil end
+    if state and state.Version~=5 then state.Owner=nil; state.SilentOwner=nil; state=nil end
     if not state then
         local unavailable=self:CapabilityProblem()
         if unavailable then
@@ -17765,7 +17765,7 @@ function MeleeAura:InstallHook()
             self:Log('error','capabilities',self.Status,nil,5)
             return false
         end
-        state={Version=4}
+        state={Version=5}
         local previous
         local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
         local ok,result=pcall(function()
@@ -17780,22 +17780,24 @@ function MeleeAura:InstallHook()
                 if method=='Raycast' and (meleeActive or silentActive) and receiver==workspace and not checkcaller() then
                     local args=table.pack(...)
                     local function redirect(feature)
-                        local succeeded,direction=pcall(function()
+                        local succeeded,direction,trace=pcall(function()
                             feature:Count('ray.seen')
                             return feature:Redirect(getcallingscript(),args[1],args[2],args[3])
                         end)
                         if not succeeded then
                             feature:Count('hook.error')
                             feature:Log('error','hook',tostring(direction),nil,1)
-                        elseif direction then return direction end
+                        else return direction,trace end
                     end
                     local direction=meleeActive and redirect(owner)
                     local chosen=direction and owner
-                    if not direction and silentActive then direction=redirect(silent); chosen=direction and silent end
-                    if direction then
-                        args[2]=direction
+                    local trace
+                    if not direction and silentActive then direction,trace=redirect(silent); chosen=direction and silent end
+                    if direction or trace then
+                        if direction then args[2]=direction end
                         local results=table.pack(previous(receiver,table.unpack(args,1,args.n)))
-                        pcall(chosen.ObserveHit,chosen,results[1])
+                        if chosen then pcall(chosen.ObserveHit,chosen,results[1]) end
+                        if trace then pcall(silent.RecordTrace,silent,trace,results[1]) end
                         return table.unpack(results,1,results.n)
                     end
                 end
@@ -17975,7 +17977,8 @@ local function inside(object,parent)
 end
 function Silent.new(config,engine,library,melee)
     local self=setmetatable({config=config,engine=engine,library=library,melee=melee,logger=engine.Logger,
-        alive=true,Counters={},Status='Disabled',connections={},fireUntil=0,lastSummary=0},Silent)
+        alive=true,Counters={},Status='Disabled',connections={},fireUntil=0,lastSummary=0,
+        traceQueue={},shots={},tracePool={}},Silent)
     self.circle=engine.Drawing.new('Circle')
     self.circle.Filled=false; self.circle.Thickness=1; self.circle.ZIndex=31; self.circle.Visible=false
     self.ray=RaycastParams.new(); self.ray.FilterType=Enum.RaycastFilterType.Exclude; self.ray.IgnoreWater=true
@@ -17991,7 +17994,14 @@ function Silent:SetStatus(value)
     self.Status=value
     if self.logger then self.logger:State('Silent','status',value) end
 end
-function Silent:Reset() self.prepared=nil; self.circle.Visible=false end
+function Silent:Reset()
+    self.prepared,self.gunContext=nil,nil; self.circle.Visible=false
+    self.traceQueue={}; self.shots={}
+    for _,slot in ipairs(self.tracePool) do
+        for _,object in pairs(slot) do if object.Visible then object.Visible=false end end
+    end
+    if self.targetDot then self.targetDot.Visible=false; self.targetLabel.Visible=false end
+end
 function Silent:Equip(tool)
     if self.tool==tool then return end
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
@@ -18065,8 +18075,9 @@ function Silent:Step(now)
         end
     end)
     if not ok then error(problem) end
-    self.prepared=best and {Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool,
-        Shared=self:SharedCallers(),FireHeld=Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)} or nil
+    self.gunContext={Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool,
+        Shared=self:SharedCallers(),FireHeld=Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)}
+    self.prepared=best and self.gunContext or nil
     self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
     self.circle.Visible=s.ShowFOV
@@ -18080,36 +18091,65 @@ end
 function Silent:Redirect(caller,origin,direction,params)
     -- Properties and cached Lua data only: no Instance methods inside __namecall.
     local function reject(reason) self:Count('ray.skip.'..reason); return nil end
-    local s,p=self.config,self.prepared
+    local s,p=self.config,self.gunContext
     if not self.alive or not s.Enabled or not self.engine.focused or (s.PauseMenu and self.library.open) then return reject('paused') end
-    if not p then return reject('no target') end
+    if not p then return reject('no gun context') end
     if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return reject('invalid vector') end
     if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 or self.tool~=p.Tool
         or p.Tool.Parent~=p.Character or not p.Tool.Enabled then return reject('tool/rig') end
-    if not (p.FireHeld or self.firing or os.clock()<self.fireUntil) then return reject('not firing') end
     if (origin-p.Root.Position).Magnitude>s.OriginRadius then return reject('distant origin') end
     if not inside(caller,p.Tool) then
         if not p.Shared[caller] then return reject('caller mismatch') end
         -- Shared bullet simulation also handles other players; require local shooter exclusions.
         if not params or params.FilterType~=Enum.RaycastFilterType.Exclude then return reject('shared filter') end
         local localFilter=false
-        for _,excluded in ipairs(params.FilterDescendantsInstances) do
+        for _,excluded in ipairs(params.FilterDescendantsInstances or {}) do
             if excluded==p.Character or excluded==p.Tool then localFilter=true; break end
         end
         if not localFilter then return reject('shared filter') end
     end
+    -- Sampling only stores Lua/vector data; no GUI or Instance methods in the hook.
+    local trace
+    local now=os.clock()
+    if s.ShowTracers and now>=(self.nextTrace or 0) then
+        self.nextTrace=now+0.05
+        trace={Origin=origin,Original=direction,Sent=direction,Time=now,Redirected=false}
+    end
+    local function skip(reason)
+        self:Count('ray.skip.'..reason)
+        if trace then trace.Reason=reason end
+        return nil,trace
+    end
+    if not (p.FireHeld or self.firing or os.clock()<self.fireUntil) then return skip('not firing') end
     local target=p.Target
+    if not target then return skip('no target') end
     if target.Player.Parent~=Players or target.Player.Character~=target.Character
         or target.Humanoid.Health<=0 or target.Humanoid.Health<s.MinHealth or target.Part.Parent~=target.Character
-        or (target.Part.Position-p.Root.Position).Magnitude>s.MaxDistance then return reject('target invalidated') end
+        or (target.Part.Position-p.Root.Position).Magnitude>s.MaxDistance then return skip('target invalidated') end
     if s.SkipDowned then
-        if target.Humanoid.PlatformStand then return reject('downed/ragdoll') end
-        for _,flag in ipairs(target.DownedFlags or {}) do if flag.Value then return reject('downed/ragdoll') end end
+        if target.Humanoid.PlatformStand then return skip('downed/ragdoll') end
+        for _,flag in ipairs(target.DownedFlags or {}) do if flag.Value then return skip('downed/ragdoll') end end
     end
-    if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return reject('hit chance') end
+    if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return skip('hit chance') end
     local delta=target.Position-origin
-    if delta.Magnitude<0.001 then return reject('zero direction') end
-    return delta.Unit*direction.Magnitude
+    if delta.Magnitude<0.001 then return skip('zero direction') end
+    local sent=delta.Unit*direction.Magnitude
+    if trace then trace.Sent=sent; trace.Redirected=true; trace.Reason='redirected' end
+    return sent,trace
+end
+function Silent:RecordTrace(trace,result)
+    -- Called after the original Raycast. Reading result properties preserves namecall context.
+    local resultType=typeof(result)
+    local position=(resultType=='RaycastResult' or type(result)=='table') and result.Position
+    trace.Hit=finite(position)
+    trace.End=trace.Hit and position or trace.Origin+trace.Sent
+    if #self.traceQueue>=16 then table.remove(self.traceQueue,1) end
+    table.insert(self.traceQueue,trace)
+    if self.logger and self.logger.settings.Enabled then
+        local function vector(v) return string.format('%.2f,%.2f,%.2f',v.X,v.Y,v.Z) end
+        self:Log('trace','shot',trace.Reason,{Origin=vector(trace.Origin),Direction=vector(trace.Sent),
+            End=vector(trace.End),Hit=trace.Hit},0.5)
+    end
 end
 function Silent:ObserveHit(result)
     self:Count('ray.redirected')
@@ -18118,11 +18158,106 @@ function Silent:ObserveHit(result)
             {Hit=(typeof(result)=='RaycastResult' or type(result)=='table') and result.Instance~=nil or false},0.5)
     end
 end
+local function screenPoint(camera,position)
+    local p=camera:WorldToViewportPoint(position)
+    local size=camera.ViewportSize
+    if p.Z<=0.01 or p.X<0 or p.Y<0 or p.X>size.X or p.Y>size.Y then return end
+    return Vector2.new(p.X,p.Y)
+end
+local function screenSegment(camera,from,to)
+    local a=camera:WorldToViewportPoint(from)
+    local b=camera:WorldToViewportPoint(to)
+    if a.Z<=0.01 and b.Z<=0.01 then return end
+    if a.Z<=0.01 then
+        from=from+(to-from)*((0.02-a.Z)/(b.Z-a.Z))
+        a=camera:WorldToViewportPoint(from)
+    elseif b.Z<=0.01 then
+        to=from+(to-from)*((0.02-a.Z)/(b.Z-a.Z))
+        b=camera:WorldToViewportPoint(to)
+    end
+    -- Clip to the viewport so long/offscreen rays never create enormous GUI frames.
+    local dx,dy=b.X-a.X,b.Y-a.Y
+    local low,high=0,1
+    for _,edge in ipairs({{-dx,a.X},{dx,camera.ViewportSize.X-a.X},{-dy,a.Y},{dy,camera.ViewportSize.Y-a.Y}}) do
+        local p,q=edge[1],edge[2]
+        if math.abs(p)<0.000001 then if q<0 then return end
+        else
+            local t=q/p
+            if p<0 then low=math.max(low,t) else high=math.min(high,t) end
+            if low>high then return end
+        end
+    end
+    return Vector2.new(a.X+dx*low,a.Y+dy*low),Vector2.new(a.X+dx*high,a.Y+dy*high)
+end
+function Silent:Render(now)
+    local s,camera=self.config,workspace.CurrentCamera
+    if not self.alive or not s.Enabled or not camera or not self.engine.focused
+        or (s.PauseMenu and self.library.open) then return end
+    local cyan,orange=Color3.fromRGB(70,235,255),Color3.fromRGB(255,155,65)
+    local function drawing(kind)
+        local object=self.engine.Drawing.new(kind); object.Visible=false; object.ZIndex=35
+        return object
+    end
+    if not s.ShowTracers then self.traceQueue={}; self.shots={} end
+    for _,shot in ipairs(self.traceQueue) do table.insert(self.shots,shot) end
+    self.traceQueue={}
+    for index=#self.shots,1,-1 do
+        if now-self.shots[index].Time> s.TraceDuration then table.remove(self.shots,index) end
+    end
+    while #self.shots>16 do table.remove(self.shots,1) end
+    for index,shot in ipairs(self.shots) do
+        local slot=self.tracePool[index]
+        if not slot then
+            slot={Original=drawing('Line'),Sent=drawing('Line'),Dot=drawing('Circle'),Label=drawing('Text')}
+            slot.Dot.Radius=4; slot.Dot.Filled=true; slot.Label.Size=12; slot.Label.Outline=true
+            self.tracePool[index]=slot
+        end
+        local color=shot.Redirected and cyan or orange
+        local alpha=math.clamp(1-(now-shot.Time)/s.TraceDuration,0,1)
+        local from,to=screenSegment(camera,shot.Origin,shot.End)
+        slot.Sent.Visible=from~=nil
+        if from then
+            slot.Sent.From,slot.Sent.To=from,to; slot.Sent.Color=color
+            slot.Sent.Thickness=s.TraceThickness; slot.Sent.Transparency=alpha
+        end
+        local originalFrom,originalTo
+        if s.ShowOriginalRay then originalFrom,originalTo=screenSegment(camera,shot.Origin,shot.Origin+shot.Original) end
+        slot.Original.Visible=originalFrom~=nil
+        if originalFrom then
+            slot.Original.From,slot.Original.To=originalFrom,originalTo
+            slot.Original.Color=Color3.fromRGB(170,170,180); slot.Original.Thickness=1; slot.Original.Transparency=alpha*0.5
+        end
+        local endpoint=screenPoint(camera,shot.End)
+        slot.Dot.Visible=endpoint~=nil; slot.Label.Visible=endpoint~=nil
+        if endpoint then
+            slot.Dot.Position=endpoint; slot.Dot.Color=color; slot.Dot.Transparency=alpha
+            slot.Label.Position=endpoint+Vector2.new(7,5); slot.Label.Color=color; slot.Label.Transparency=alpha
+            slot.Label.Text=(shot.Redirected and 'SA' or ('PASS: '..shot.Reason))..(shot.Hit and ' / client hit' or ' / ray end')
+        end
+    end
+    for index=#self.shots+1,#self.tracePool do
+        for _,object in pairs(self.tracePool[index]) do if object.Visible then object.Visible=false end end
+    end
+    if s.ShowTargetGuide then
+        if not self.targetDot then
+            self.targetDot=drawing('Circle'); self.targetDot.Radius=6; self.targetDot.Filled=false; self.targetDot.Thickness=2
+            self.targetLabel=drawing('Text'); self.targetLabel.Size=13; self.targetLabel.Outline=true
+        end
+        local target=self.prepared and self.prepared.Target
+        local point=target and screenPoint(camera,target.Position)
+        local gold=Color3.fromRGB(255,215,90)
+        self.targetDot.Visible=point~=nil
+        if point then self.targetDot.Position=point; self.targetDot.Color=gold end
+        self.targetLabel.Visible=true; self.targetLabel.Color=gold
+        self.targetLabel.Position=point and point+Vector2.new(9,-18) or camera.ViewportSize/2+Vector2.new(0,s.Radius+16)
+        self.targetLabel.Text=point and 'SA target (guide)' or ('SA: '..self.Status)
+    elseif self.targetDot then self.targetDot.Visible=false; self.targetLabel.Visible=false end
+end
 function Silent:Start()
     local nextUpdate=0
     self.connection=RunService.Heartbeat:Connect(function()
         local now=os.clock(); if now<nextUpdate then return end; nextUpdate=now+1/30
-        local ok,problem=xpcall(function() self:Step(now) end,debug.traceback)
+        local ok,problem=xpcall(function() self:Step(now); self:Render(now) end,debug.traceback)
         if not ok then self:Reset(); self:SetStatus('Error in silent update'); self:Log('error','heartbeat',problem,nil,1) end
     end)
 end
@@ -18131,6 +18266,9 @@ function Silent:Destroy()
     self.alive=false; self:Equip(nil)
     if self.connection then self.connection:Disconnect() end
     if self.hook and self.hook.SilentOwner==self then self.hook.SilentOwner=nil end
+    for _,slot in ipairs(self.tracePool) do for _,object in pairs(slot) do object:Remove() end end
+    if self.targetDot then self.targetDot:Remove(); self.targetLabel:Remove() end
+    self.tracePool={}; self.traceQueue={}; self.shots={}
     self.circle:Remove()
 end
 return Silent
@@ -18505,7 +18643,8 @@ local config={
     Silent={Enabled=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
-        Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12},
+        Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12,
+        ShowTracers=true,ShowOriginalRay=true,ShowTargetGuide=true,TraceDuration=1,TraceThickness=2},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
         TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
@@ -18780,6 +18919,12 @@ local ok,message=xpcall(function()
     toggle(silentControls,'Silent prediction','Silent','Prediction')
     slider(silentControls,'Silent prediction time','Silent','LeadTime',0,0.4,0.005,' s')
     slider(silentControls,'Silent minimum HP','Silent','MinHealth',1,100,1)
+    toggle(silentControls,'Show silent shot traces','Silent','ShowTracers')
+    toggle(silentControls,'Show original ray direction','Silent','ShowOriginalRay')
+    toggle(silentControls,'Show silent target guide','Silent','ShowTargetGuide')
+    slider(silentControls,'Shot trace lifetime','Silent','TraceDuration',0.2,3,0.1,' s')
+    slider(silentControls,'Shot trace thickness','Silent','TraceThickness',1,4,0.5,' px')
+    silentControls:AddText({text='Cyan: redirected; orange: unchanged; grey: original; gold: target guide.'})
     silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
     silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})

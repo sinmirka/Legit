@@ -25,13 +25,14 @@ local caller=Instance.new('LocalScript'); caller.Name='GunClient'; caller.Parent
 local callingscript=caller
 local method='Raycast'
 local hooked,installed,lastArgs,failOriginal,executor=nil,0,nil,false,false
+local resultPosition
 hookmetamethod=function(_,_,callback)
     installed+=1; hooked=callback
     return function(_, ...)
         assert(method=='Raycast','method context preserved')
         if failOriginal then error('original failure') end
         lastArgs=table.pack(...)
-        return {Instance=targetChar.Children.Head},nil,'tail'
+        return {Instance=targetChar.Children.Head,Position=resultPosition},nil,'tail'
     end
 end
 getnamecallmethod=function() return method end
@@ -106,6 +107,37 @@ assert(cast()~=direction and installed==1,'melee still works with shared dispatc
 direction=vec(0,0,100)
 gun.Name='Pistol'; app.MeleeAura:Step(14); silent:Step(14); gun.Activated:Fire()
 assert(silent.prepared and cast()~=direction and installed==1,'switching back to gun reuses dispatcher')
+-- Render sampled real rays, not a line fabricated from the selected target.
+targetChar.Children.Head.Position=vec(6,0,30); targetChar.Children.HumanoidRootPart.Position=vec(6,0,30)
+origin=vec(0,0,1); resultPosition=vec(8,0,32)
+silent:Reset(); silent:Step(20); gun.Activated:Fire(); silent.nextTrace=0
+cast()
+assert(#silent.traceQueue==1 and #silent.tracePool==0,'hook queues data without creating GUI')
+local shot=silent.traceQueue[1]
+assert(shot.Redirected and shot.Hit and shot.End==resultPosition and shot.Original==direction,'capture actual client hit and original direction')
+local realTime=os.clock(); silent:Render(realTime)
+assert(#silent.tracePool==1 and silent.tracePool[1].Sent.Visible and silent.tracePool[1].Original.Visible,'original and sent paths rendered')
+assert(silent.tracePool[1].Dot.Position.X==648 and silent.targetDot.Position.X==646,'actual endpoint differs from separately labelled target guide')
+s.Radius=1; silent:Step(21); silent.nextTrace=0
+assert(cast()==direction and silent.traceQueue[1].Reason=='no target','scoped unmodified shot visible when FOV has no target')
+silent:Render(os.clock())
+assert(silent.tracePool[2].Label.Text:find('PASS: no target',1,true),'passthrough reason displayed')
+s.Radius=160; s.HitChance=0; silent:Step(22); silent.nextTrace=0
+assert(cast()==direction and silent.traceQueue[1].Reason=='hit chance','visualization never forces a rejected hit')
+s.HitChance=100
+for _=1,100 do silent.nextTrace=0; cast() end
+assert(#silent.traceQueue==16,'bounded queue under ray bursts')
+silent:Render(os.clock()); assert(#silent.shots==16 and #silent.tracePool==16,'bounded renderer pool')
+silent:Render(os.clock()+s.TraceDuration+1)
+assert(#silent.shots==0 and not silent.tracePool[1].Sent.Visible,'traces expire')
+silent.nextTrace=0; cast(); silent:Render(os.clock())
+s.ShowTracers=false; silent:Render(os.clock())
+assert(#silent.shots==0 and not silent.tracePool[1].Sent.Visible,'disable traces clears existing paths')
+s.ShowTracers=true; s.ShowOriginalRay=false; silent.nextTrace=0; cast(); silent:Render(os.clock())
+assert(not silent.tracePool[1].Original.Visible,'original direction independently hidden')
+silent.nextTrace=0; cast(); silent:Render(os.clock()); silent:Reset()
+assert(#silent.traceQueue==0 and not silent.targetDot.Visible and not silent.tracePool[1].Sent.Visible,'reset clears visuals and pending rays')
+resultPosition=nil
 local function button(label)
     for _,tab in ipairs(app.Library.windows[1].tabs) do for _,section in ipairs(tab.sections) do
         for _,option in ipairs(section.options) do if option.class=='button' and option.text==label then return option end end
@@ -116,7 +148,9 @@ app.Library.options.Silent_HitChance:SetValue(0); button('Load profile').callbac
 assert(s.HitChance==65,'silent profile roundtrip')
 button('Reset defaults').callback(); assert(not s.Enabled and s.SkipDowned and s.HitChance==100,'safe defaults')
 local circle=silent.circle; local connection=silent.connection
+local visual= silent.tracePool[1].Sent
 app:Unload()
 assert(not silent.alive and not connection.Connected and not silent.tool and not circle.Visible,'silent cleanup')
+assert(not visual.Visible and next(silent.tracePool)==nil,'tracer graphics released on unload')
 assert(getgenv().LegitMeleeRaycastHook.SilentOwner==nil and getgenv().LegitMeleeRaycastHook.Owner==nil,'shared dispatcher releases both owners')
 print('PASS Silent Aim: independent targeting, FOV/filters, fire/caller/origin scoping, ray length, 1000 safe calls, melee coexistence, profiles and cleanup')

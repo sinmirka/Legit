@@ -154,7 +154,7 @@ function MeleeAura:InstallHook()
     local env=getgenv()
     local state=env.LegitMeleeRaycastHook
     -- Upgrade the old dispatcher once; leave its owner empty so it stays transparent.
-    if state and state.Version~=4 then state.Owner=nil; state.SilentOwner=nil; state=nil end
+    if state and state.Version~=5 then state.Owner=nil; state.SilentOwner=nil; state=nil end
     if not state then
         local unavailable=self:CapabilityProblem()
         if unavailable then
@@ -162,7 +162,7 @@ function MeleeAura:InstallHook()
             self:Log('error','capabilities',self.Status,nil,5)
             return false
         end
-        state={Version=4}
+        state={Version=5}
         local previous
         local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
         local ok,result=pcall(function()
@@ -177,22 +177,24 @@ function MeleeAura:InstallHook()
                 if method=='Raycast' and (meleeActive or silentActive) and receiver==workspace and not checkcaller() then
                     local args=table.pack(...)
                     local function redirect(feature)
-                        local succeeded,direction=pcall(function()
+                        local succeeded,direction,trace=pcall(function()
                             feature:Count('ray.seen')
                             return feature:Redirect(getcallingscript(),args[1],args[2],args[3])
                         end)
                         if not succeeded then
                             feature:Count('hook.error')
                             feature:Log('error','hook',tostring(direction),nil,1)
-                        elseif direction then return direction end
+                        else return direction,trace end
                     end
                     local direction=meleeActive and redirect(owner)
                     local chosen=direction and owner
-                    if not direction and silentActive then direction=redirect(silent); chosen=direction and silent end
-                    if direction then
-                        args[2]=direction
+                    local trace
+                    if not direction and silentActive then direction,trace=redirect(silent); chosen=direction and silent end
+                    if direction or trace then
+                        if direction then args[2]=direction end
                         local results=table.pack(previous(receiver,table.unpack(args,1,args.n)))
-                        pcall(chosen.ObserveHit,chosen,results[1])
+                        if chosen then pcall(chosen.ObserveHit,chosen,results[1]) end
+                        if trace then pcall(silent.RecordTrace,silent,trace,results[1]) end
                         return table.unpack(results,1,results.n)
                     end
                 end
