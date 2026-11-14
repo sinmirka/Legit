@@ -9,7 +9,7 @@
 
 ## UI и запускаемые инструменты
 
-- [deividcomsono/Obsidian](https://github.com/deividcomsono/Obsidian) — используемая библиотека UI; исходники и лицензия находятся в `vendor/Obsidian`.
+- [B5RLAS/Neverlose](https://github.com/B5RLAS/Neverlose/blob/main/NeverLose.lua) — текущая библиотека UI; исходник и описание локальных изменений находятся в `vendor/Neverlose`. Obsidian сохранён в истории/архиве и больше не загружается.
 - [FusionWTF/DeX-Explorer](https://github.com/FusionWTF/DeX-Explorer) — внешний Dex Explorer, загружается только кнопкой в Misc.
 - [78n/SimpleSpy](https://github.com/78n/SimpleSpy) — внешний Remote Spy, загружается только кнопкой в Misc; URL в коде закреплён на конкретном коммите.
 

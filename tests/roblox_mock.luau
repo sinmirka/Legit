@@ -23,6 +23,7 @@ function task.spawn(callback,...)
     if coroutine.status(thread)=='suspended' then table.insert(task.pending,thread) end
     return thread
 end
+function task.delay(_,callback) table.insert(task.pending,coroutine.create(callback)) end
 function task.wait() return coroutine.yield() end
 function tick() return os.clock() end
 function warn(...) print('WARN',...) end
@@ -68,12 +69,14 @@ Enum=setmetatable({},{__index=function(self,category)
 end})
 local object={}; object.__index=object
 function object:Destroy() self.Destroyed=true; self.Parent=nil end
-function object:IsA(class) return self.ClassName==class or class=='Instance' or (class=='BasePart' and self.ClassName=='Part') end
+function object:IsA(class) return self.ClassName==class or class=='Instance' or (class=='GuiObject' and (self.ClassName=='Frame' or self.ClassName=='TextLabel')) or (class=='BasePart' and self.ClassName=='Part') end
 function object:FindFirstChild(name) return self.Children[name] end
 function object:FindFirstChildOfClass(class)
     for _,child in pairs(self.Children) do if child.ClassName==class then return child end end
 end
 function object:IsDescendantOf(parent) return parent==workspace or parent==self.Parent end
+function object:GetChildren() local result={} for _,child in pairs(self.Children) do table.insert(result,child) end return result end
+function object:GetDescendants() return self:GetChildren() end
 function object:GetAttribute(name) return self.Attributes and self.Attributes[name] end
 function object:GetState() return self.State or Enum.HumanoidStateType.Running end
 Instance={new=function(class) return setmetatable({ClassName=class,Children={},Destroying=signal(),Activated=signal(),Deactivated=signal(),FocusLost=signal(),

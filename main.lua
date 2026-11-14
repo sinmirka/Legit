@@ -1,4 +1,4 @@
--- Legit | Obsidian UI. Entry point for the README loadstring.
+-- Legit | Neverlose UI. Entry point for the README loadstring.
 local bundledFiles=...
 local BASE='https://raw.githubusercontent.com/sinmirka/Legit/main/'
 -- BEGIN HTTP TRANSPORT
@@ -83,9 +83,8 @@ local renderMode='GUI'
 local renderer=remote('src/GuiDrawing.lua')().new(game:GetService('Players').LocalPlayer:WaitForChild('PlayerGui'))
 local drawingAPI=renderer
 local loaded,library=pcall(function()
-    local icons=remote('vendor/Obsidian/Lucide.lua')()
-    local obsidian=remote('vendor/Obsidian/Library.lua')(icons)
-    return remote('src/ObsidianUI.lua')().new(obsidian)
+    local native=remote('vendor/Neverlose/Library.lua')()
+    return remote('src/NeverloseUI.lua')().new(native)
 end)
 if not loaded then if renderer then renderer:Destroy() end; error('[Legit] '..tostring(library),0) end
 library.toggleKey=Enum.KeyCode.RightShift
@@ -244,7 +243,7 @@ local ok,message=xpcall(function()
                 refreshTools(group)
                 if group=='Silent' then silent:Reset() end
                 if group=='Melee' then melee:Reset() end
-                if group=='Interface' and key=='Scale' then library.Obsidian:SetDPIScale(value) end
+                if group=='Interface' and key=='Scale' then library:SetScale(value) end
             end}),'slider')
     end
     local function select(section,label,group,key,choices)
@@ -267,7 +266,7 @@ local ok,message=xpcall(function()
         end}),'color')
     end
     local tabs={}
-    for _,name in ipairs({'Aimbot','Combat','Character','ESP','Misc','Players','UI Settings'}) do
+    for _,name in ipairs({'Aimbot','Combat','Character','ESP','World','Misc','Players','UI Settings'}) do
         tabs[name]=window:AddTab(name)
     end
     local routes={Aim='Aimbot',['Aim+']='Aimbot',Colors='ESP',Overlay='ESP',Labels='ESP',Melee='Combat',Profiles='UI Settings'}
@@ -435,7 +434,7 @@ local ok,message=xpcall(function()
     slider(right,'Speed value','Character','Speed',0,150,1)
     right:AddText({text='Jump power or height follows the game jump mode.'})
     right:AddText({text='Server movement limits can still apply.'})
-    left,right=sections('ESP','World','World effects')
+    left,right=sections('World','World','World effects')
     toggle(left,'Time changer','World','TimeEnabled')
     slider(left,'Select hours','World','Time',0,24,0.1)
     toggle(left,'Custom exposure','World','ExposureEnabled')
@@ -591,7 +590,7 @@ local ok,message=xpcall(function()
     remember('Interface','MenuKey',right:AddBind({text='Menu key',flag='Interface_MenuKey',bind=config.Interface.MenuKey,
         keycallback=function(key)
             config.Interface.MenuKey=key
-            library.Obsidian.ToggleKeybind=typeof(key)=='EnumItem' and key or Enum.KeyCode.Unknown
+            library:SetMenuKey(key)
         end}),'bind')
     right:AddButton({text='Show aim status',callback=function() library:SendNotification(engine.Status or 'Aimbot: OFF',5) end})
     right:AddButton({text='Toggle status watermark',callback=function()
