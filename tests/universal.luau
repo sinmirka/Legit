@@ -95,7 +95,6 @@ option('Players_Priority'):Select('Enemy'); button('Apply priority').callback()
 assert(app.Engine:TargetRank(other)<app.Engine:TargetRank(enemy),'Enemy rank')
 local a=app.Config.Aim; a.Sticky=false; a.WallCheck=false
 app.Engine.playerModes[other.UserId]=nil; app.Engine.playerModes[enemy.UserId]='Enemy'
-local _,_,currentRoot=makePlayer(9,'unused')
 local candidate=app.Engine:Choose(workspace.CurrentCamera,newFixture.Character.Children.HumanoidRootPart,100)
 assert(candidate and candidate.Player==enemy,'Aim prefers an eligible Enemy over nearer Neutral')
 app.Config.Melee.Enabled=true; app.Config.Melee.PauseMenu=false; app.Config.Melee.AutoAttack=false
@@ -116,6 +115,35 @@ button('Save profile').callback()
 option('World_Time'):SetValue(8); option('Character_Speed'):SetValue(70)
 button('Load profile').callback()
 assert(lighting.ClockTime==3 and newHum.WalkSpeed==35,'universal profile roundtrip')
+-- External launchers are lazy and tested with inert responses, never downloaded/executed here.
+local clipboard
+setclipboard=function(text) clipboard=text end
+game.PlaceId=123; game.JobId='test-server'
+button('Copy server info').callback()
+assert(clipboard=='PlaceId: 123\nJobId: test-server','copy server information')
+local teleported
+MOCK.services.TeleportService={TeleportToPlaceInstance=function(_,place,job,player) teleported={place,job,player} end}
+button('Rejoin server').callback()
+assert(teleported[1]==123 and teleported[2]=='test-server' and teleported[3]==players.LocalPlayer,'rejoin current server')
+local requests=0
+local http=game.HttpGet
+game.HttpGet=function(_,url)
+    requests+=1
+    assert(url==tools.Scripts.Dex.URL or url==tools.Scripts.RemoteSpy.URL,'fixed source URL')
+    return 'getgenv().TEST_EXTERNAL_LAUNCH=(getgenv().TEST_EXTERNAL_LAUNCH or 0)+1'
+end
+tools:RunScript('Dex'); tools:RunScript('Dex')
+assert(requests==1 and getgenv().TEST_EXTERNAL_LAUNCH==1,'lazy launch and duplicate guard')
+game.HttpGet=function() requests+=1; return '<html>error</html>' end
+tools:RunScript('RemoteSpy')
+assert(not tools.launched.RemoteSpy,'invalid response allows retry')
+game.HttpGet=function() return 'error("startup failure")' end
+tools:RunScript('RemoteSpy'); assert(not tools.launched.RemoteSpy,'runtime failure allows retry')
+game.HttpGet=function() return 'this is not Lua' end
+tools:RunScript('RemoteSpy'); assert(not tools.launched.RemoteSpy,'compile failure allows retry')
+game.HttpGet=function() error('network failure') end
+tools:RunScript('RemoteSpy'); assert(not tools.launched.RemoteSpy,'network failure allows retry')
+game.HttpGet=http
 option('World_ColorEnabled'):SetState(true); local colorEffect=tools.effects.ColorCorrection
 local connection=tools.connections[1]
 app:Unload()

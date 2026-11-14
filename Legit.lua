@@ -17768,6 +17768,12 @@ local Input=game:GetService('UserInputService')
 local Lighting=game:GetService('Lighting')
 local Tools={}
 Tools.__index=Tools
+Tools.Scripts={
+    Dex={URL='https://github.com/FusionWTF/Dex-Explorer/releases/download/Beta/out.lua',
+        Source='https://github.com/FusionWTF/DeX-Explorer'},
+    RemoteSpy={URL='https://raw.githubusercontent.com/78n/SimpleSpy/de04922e7b26d932111a04a18ee8d3341523ee5c/SimpleSpySource.lua',
+        Source='https://github.com/78n/SimpleSpy'},
+}
 local function humanoid(player)
     local character=player and player.Character
     return character and character:FindFirstChildOfClass('Humanoid')
@@ -17873,6 +17879,25 @@ function Tools:PlayerList(query)
     end
     table.sort(values)
     return values,map
+end
+function Tools:RunScript(name)
+    if not self.alive then return end
+    local script=assert(self.Scripts[name],'Unknown tool')
+    if self.launched[name] then self.library:SendNotification(name..' was already launched',4); return end
+    self.launched[name]=true
+    task.spawn(function()
+        local ok,problem=pcall(function()
+            local body=game:HttpGet(script.URL)
+            assert(type(body)=='string' and body:find('%S') and not body:match('^%s*<'),'Invalid script response')
+            local chunk,message=loadstring(body,'@Legit/External/'..name)
+            assert(chunk,message)
+            if self.alive then chunk() else self.launched[name]=nil end
+        end)
+        if not ok then
+            self.launched[name]=nil
+            if self.alive then self.library:SendNotification(name..': '..tostring(problem),6) end
+        end
+    end)
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
@@ -18280,6 +18305,22 @@ local ok,message=xpcall(function()
     slider(right,'Contrast','World','Contrast',-1,1,0.01)
     slider(right,'Saturation','World','Saturation',-1,1,0.01)
     color(right,'Tint','World','Tint')
+    left,right=sections('Misc','Misc / Universal','Scripts')
+    local function action(fn)
+        local success,problem=pcall(fn)
+        if not success then library:SendNotification(tostring(problem),5) end
+    end
+    left:AddButton({text='Copy server info',callback=function() action(function()
+        assert(type(setclipboard)=='function','Executor does not support clipboard')
+        setclipboard('PlaceId: '..tostring(game.PlaceId)..'\nJobId: '..tostring(game.JobId))
+    end) end})
+    left:AddButton({text='Rejoin server',confirm=true,callback=function() action(function()
+        game:GetService('TeleportService'):TeleportToPlaceInstance(game.PlaceId,game.JobId,game:GetService('Players').LocalPlayer)
+    end) end})
+    right:AddButton({text='Dex Explorer',callback=function() tools:RunScript('Dex') end})
+    right:AddButton({text='Remote Spy',callback=function() tools:RunScript('RemoteSpy') end})
+    right:AddText({text='External tools download only when launched and have their own close controls.'})
+    left:AddText({text='Auto money, lockpick, staff detection and hitsounds require game-specific work.'})
     left,right=sections('Players','Player list','Selected player')
     local search,playerMap,selectedLabel,mode='',{},nil,'Neutral'
     local playerList,details

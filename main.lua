@@ -378,6 +378,22 @@ local ok,message=xpcall(function()
     slider(right,'Contrast','World','Contrast',-1,1,0.01)
     slider(right,'Saturation','World','Saturation',-1,1,0.01)
     color(right,'Tint','World','Tint')
+    left,right=sections('Misc','Misc / Universal','Scripts')
+    local function action(fn)
+        local success,problem=pcall(fn)
+        if not success then library:SendNotification(tostring(problem),5) end
+    end
+    left:AddButton({text='Copy server info',callback=function() action(function()
+        assert(type(setclipboard)=='function','Executor does not support clipboard')
+        setclipboard('PlaceId: '..tostring(game.PlaceId)..'\nJobId: '..tostring(game.JobId))
+    end) end})
+    left:AddButton({text='Rejoin server',confirm=true,callback=function() action(function()
+        game:GetService('TeleportService'):TeleportToPlaceInstance(game.PlaceId,game.JobId,game:GetService('Players').LocalPlayer)
+    end) end})
+    right:AddButton({text='Dex Explorer',callback=function() tools:RunScript('Dex') end})
+    right:AddButton({text='Remote Spy',callback=function() tools:RunScript('RemoteSpy') end})
+    right:AddText({text='External tools download only when launched and have their own close controls.'})
+    left:AddText({text='Auto money, lockpick, staff detection and hitsounds require game-specific work.'})
     left,right=sections('Players','Player list','Selected player')
     local search,playerMap,selectedLabel,mode='',{},nil,'Neutral'
     local playerList,details

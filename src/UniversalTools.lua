@@ -4,6 +4,12 @@ local Input=game:GetService('UserInputService')
 local Lighting=game:GetService('Lighting')
 local Tools={}
 Tools.__index=Tools
+Tools.Scripts={
+    Dex={URL='https://github.com/FusionWTF/Dex-Explorer/releases/download/Beta/out.lua',
+        Source='https://github.com/FusionWTF/DeX-Explorer'},
+    RemoteSpy={URL='https://raw.githubusercontent.com/78n/SimpleSpy/de04922e7b26d932111a04a18ee8d3341523ee5c/SimpleSpySource.lua',
+        Source='https://github.com/78n/SimpleSpy'},
+}
 local function humanoid(player)
     local character=player and player.Character
     return character and character:FindFirstChildOfClass('Humanoid')
@@ -109,6 +115,25 @@ function Tools:PlayerList(query)
     end
     table.sort(values)
     return values,map
+end
+function Tools:RunScript(name)
+    if not self.alive then return end
+    local script=assert(self.Scripts[name],'Unknown tool')
+    if self.launched[name] then self.library:SendNotification(name..' was already launched',4); return end
+    self.launched[name]=true
+    task.spawn(function()
+        local ok,problem=pcall(function()
+            local body=game:HttpGet(script.URL)
+            assert(type(body)=='string' and body:find('%S') and not body:match('^%s*<'),'Invalid script response')
+            local chunk,message=loadstring(body,'@Legit/External/'..name)
+            assert(chunk,message)
+            if self.alive then chunk() else self.launched[name]=nil end
+        end)
+        if not ok then
+            self.launched[name]=nil
+            if self.alive then self.library:SendNotification(name..': '..tostring(problem),6) end
+        end
+    end)
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
