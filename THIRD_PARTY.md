@@ -6,6 +6,13 @@
 
 Local integration changes: Obsidian receives the bundled Lucide module as its chunk argument instead of fetching Molto/Lucide over HTTP. Both files locally disable `getcustomasset` to use their upstream Roblox asset ID fallback, avoiding image/font downloads and executor cache maintenance. The widget and layout code remains upstream Obsidian.
 
+## Optional external tools (not vendored or run at startup)
+
+- Dex: [FusionWTF/DeX-Explorer](https://github.com/FusionWTF/DeX-Explorer), the `Beta/out.lua` release linked by that project's README. This release URL may change upstream.
+- Remote Spy: [78n/SimpleSpy](https://github.com/78n/SimpleSpy), `SimpleSpySource.lua` at commit `de04922e7b26d932111a04a18ee8d3341523ee5c`. Its own dependencies / update controls use upstream URLs.
+
+These tools are fetched only through their explicit launch buttons. They retain their own interfaces and cleanup. Source URLs are defined in `src/UniversalTools.lua`; copies downloaded to `.test-work/` for compile-only validation are not committed or bundled.
+
 ## Tokyo Lib (legacy, not bundled)
 
 Основа `vendor/Tokyo.lua` — файл **Tokyo Lib Source.lua**, предоставленный пользователем. Исходная копия сохранена первым коммитом `chore: vendor supplied Tokyo UI library`. Имена и комментарии исходника сохранены. Лицензия в приложенном файле не указана; авторство библиотеки этому проекту не приписывается.
