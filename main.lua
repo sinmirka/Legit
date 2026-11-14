@@ -151,6 +151,8 @@ function app:DebugContext()
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     data.SilentStatus=silent and silent.Status or 'not started'
+    data.SilentBackend='FastCast launch'
+    data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
     data.SilentHitChance=config.Silent.HitChance; data.SilentMaxDistance=config.Silent.MaxDistance
@@ -218,7 +220,7 @@ local ok,message=xpcall(function()
             refreshTools(group)
             if group=='Silent' then silent:Reset() end
             if group=='Silent' and key=='Enabled' and value then
-                local unavailable=melee:CapabilityProblem()
+                local unavailable=silent:CapabilityProblem()
                 if unavailable then silent:SetStatus(unavailable); library:SendNotification(unavailable,7) end
             end
             if group=='Melee' then melee:Reset() end
@@ -388,7 +390,7 @@ local ok,message=xpcall(function()
     toggle(silentControls,'Enable silent aim','Silent','Enabled')
     select(silentControls,'Silent target part','Silent','Part',{'Head','UpperTorso','HumanoidRootPart'})
     select(silentControls,'Silent priority','Silent','Priority',{'Screen','Distance','Lowest health'})
-    slider(silentControls,'Hit chance per ray','Silent','HitChance',0,100,1,' %')
+    slider(silentControls,'Hit chance per projectile','Silent','HitChance',0,100,1,' %')
     slider(silentControls,'Silent FOV','Silent','Radius',10,800,1,' px')
     slider(silentControls,'Silent max distance','Silent','MaxDistance',50,5000,10,' studs')
     toggle(silentControls,'Show silent FOV','Silent','ShowFOV')

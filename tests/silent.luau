@@ -23,65 +23,101 @@ local values=Instance.new('Folder'); gun.Children.Values=values
 values.Children.SERVER_Ammo=Instance.new('IntValue')
 local caller=Instance.new('LocalScript'); caller.Name='GunClient'; caller.Parent=gun
 local callingscript=caller
-local method='Raycast'
-local hooked,installed,lastArgs,failOriginal,executor=nil,0,nil,false,false
-local resultPosition
-hookmetamethod=function(_,_,callback)
-    installed+=1; hooked=callback
-    return function(_, ...)
-        assert(method=='Raycast','method context preserved')
+local executor=false
+local methods={'Fire','FireWithBlacklist','FireWithWhitelist'}
+local api,hooks={},{}
+local installed,originalCalls,lastArgs,failOriginal=0,0,nil,false
+local caster={LengthChanged=Instance.new('BindableEvent').Activated,RayHit=Instance.new('BindableEvent').Activated}
+for _,name in ipairs(methods) do
+    api[name]=function(...)
+        originalCalls+=1
         if failOriginal then error('original failure') end
         lastArgs=table.pack(...)
-        return {Instance=targetChar.Children.Head,Position=resultPosition},nil,'tail'
+        return 'original',nil,'tail'
     end
 end
-getnamecallmethod=function() return method end
-checkcaller=function() return executor end
-getcallingscript=function() return callingscript end
-newcclosure=function(fn) return fn end
-local params={FilterType=Enum.RaycastFilterType.Exclude,FilterDescendantsInstances={character}}
-local origin,direction=vec(0,0,0),vec(0,0,100)
-local function cast()
-    local result,middle,tail=hooked(workspace,origin,direction,params,nil,'extra')
-    assert(result.Instance==targetChar.Children.Head and middle==nil and tail=='tail','game return tuple preserved')
-    assert(lastArgs.n==5 and lastArgs[3]==params and lastArgs[5]=='extra','params and varargs preserved')
-    return lastArgs[2]
-end
-app.Library:SetOpen(false)
-silent:Step(0); assert(installed==0 and not silent.circle.Visible,'disabled has no hooks or FOV')
-s.Enabled=true; silent:Step(1)
-assert(installed==1 and silent.prepared.Target.Player==target,'independent screen selection')
-local cameraFrame=workspace.CurrentCamera.CFrame
-assert(cast()==direction,'does not redirect without firing')
-gun.Activated:Fire()
-local adjusted=cast()
-assert(adjusted.X>0 and math.abs(adjusted.Magnitude-direction.Magnitude)<1e-8,'steer toward target and preserve ray length')
-assert(workspace.CurrentCamera.CFrame==cameraFrame and not app.Config.Aim.Enabled,'camera never moves and Aim may stay disabled')
-s.HitChance=0; assert(cast()==direction,'zero percent never redirects'); s.HitChance=100
-executor=true; assert(cast()==direction,'executor rays bypass'); executor=false
-origin=vec(100,0,0); assert(cast()==direction,'distant rays bypass'); origin=vec(0,0,0)
-callingscript=Instance.new('ModuleScript'); callingscript.Name='RayHandler'
-assert(cast()==direction,'name alone cannot authorize a shared caller')
 local storage=MOCK.services.ReplicatedStorage
 local modules=Instance.new('Folder'); storage.Children.NewModules=modules
 local shared=Instance.new('Folder'); modules.Children.Shared=shared
 local services=Instance.new('Folder'); shared.Children.Services=services
-services.Children.RayHandler=callingscript
-silent:Step(2); gun.Activated:Fire()
-assert(cast()~=direction,'known game ray handler with local shooter filter is supported')
-params.FilterDescendantsInstances={}; assert(cast()==direction,'other shooter rays bypass'); params.FilterDescendantsInstances={character}
-params.FilterType=Enum.RaycastFilterType.Include; assert(cast()==direction,'include-filter shared rays bypass'); params.FilterType=Enum.RaycastFilterType.Exclude
+local module=Instance.new('ModuleScript'); services.Children.FastCastRedux=module
+require=function(value) assert(value==module,'only the known game module is loaded'); return api end
+hookfunction=function(fn,callback)
+    installed+=1; assert(not hooks[fn],'no duplicate hooks'); hooks[fn]=callback; return fn
+end
+checkcaller=function() return executor end
+getcallingscript=function() return callingscript end
+newcclosure=function(fn) return fn end
+local origin,direction,velocity=vec(0,0,0),vec(0,0,100),vec(0,0,300)
+local acceleration=vec(0,0,0)
+local exclusions={character}
+local bullet=Instance.new('Part')
+local function fire(method)
+    method=method or 'FireWithBlacklist'
+    local args
+    if method=='Fire' then
+        args=table.pack(caster,42,origin,direction,velocity,bullet,character,true,acceleration,'x',nil,'y',nil)
+    else
+        args=table.pack(caster,42,origin,direction,velocity,exclusions,bullet,true,acceleration,'x',nil,'y',nil)
+    end
+    local before=originalCalls
+    local a,b,c=(hooks[api[method]] or api[method])(table.unpack(args,1,args.n))
+    assert(a=='original' and b==nil and c=='tail','original return tuple preserved')
+    assert(originalCalls==before+1 and lastArgs.n==13,'original runs exactly once, trailing nil retained')
+    for index=1,args.n do if index~=4 and index~=5 then assert(lastArgs[index]==args[index],'unrelated argument preserved: '..index) end end
+    return lastArgs[4],lastArgs[5]
+end
+local function close(a,b) return (a-b).Magnitude<1e-7 end
+app.Library:SetOpen(false)
+silent:Step(0); assert(installed==0 and not silent.circle.Visible,'disabled installs nothing')
+s.Enabled=true; silent:Step(1)
+assert(installed==3 and silent.prepared.Target.Player==target,'independent target and three real entrypoints')
+local cameraFrame=workspace.CurrentCamera.CFrame
+for _,method in ipairs(methods) do
+    local sent,speed=fire(method)
+    assert(sent.X>0 and math.abs(sent.Magnitude-direction.Magnitude)<1e-8,'range and target direction')
+    assert(math.abs(speed.Magnitude-velocity.Magnitude)<1e-8 and close(speed.Unit,sent.Unit),'vector velocity steered with direction')
+end
+assert(workspace.CurrentCamera.CFrame==cameraFrame and not app.Config.Aim.Enabled,'no camera movement')
+-- Regression: integrate the actual FastCast formula across multiple untouched segments.
+local sent,speed=fire()
+local actualVelocity=(sent.Unit+speed).Unit*speed.Magnitude
+local t=(targetChar.Children.Head.Position-origin).Magnitude/actualVelocity.Magnitude
+assert(close(origin+actualVelocity*t,targetChar.Children.Head.Position),'initial velocity reaches target without per-segment rewrites')
+velocity=300; sent,speed=fire(); assert(speed==300 and sent.X>0,'scalar speed retained')
+velocity=vec(0,0,300); acceleration=vec(0,-196.2,0)
+sent,speed=fire()
+actualVelocity=(sent.Unit+speed).Unit*speed.Magnitude
+local flight=30/actualVelocity.Z
+assert(close(origin+actualVelocity*flight+acceleration*(flight^2/2),targetChar.Children.Head.Position),'gravity compensated at launch')
+acceleration=vec(0,-1e9,0); assert(fire()==direction,'unreachable ballistic target passes unchanged')
+acceleration=vec(0,0,0)
+s.HitChance=0; assert(fire()==direction,'zero chance'); s.HitChance=100
+executor=true; assert(fire()==direction,'executor fire bypasses'); executor=false
+origin=vec(100,0,0); assert(fire()==direction,'distant origin bypass'); origin=vec(0,0,0)
+callingscript=module
+assert(fire()~=direction and fire('Fire')~=direction,'shared controller needs explicit local exclusions')
+exclusions={otherChar}; assert(fire()==direction,'other shooter never redirected')
+exclusions={character}; assert(fire('FireWithWhitelist')==direction,'local character in whitelist does not identify shooter')
 callingscript=caller
-hum.Health=0; assert(cast()==direction,'dead target invalidates cached ray immediately'); hum.Health=100
+hum.Health=0; assert(fire()==direction,'target death invalidates cached aim'); hum.Health=100
+hum.PlatformStand=true; assert(fire()==direction,'newly downed cached target skipped'); hum.PlatformStand=false
 local focused=MOCK.services.UserInputService.GetFocusedTextBox
 local candidate=app.Engine.Candidate
-MOCK.services.UserInputService.GetFocusedTextBox=function() method='GetFocusedTextBox'; error('no Instance calls in hook') end
-app.Engine.Candidate=function() method='FindFirstChild'; error('no target scan in hook') end
-for _=1,1000 do assert(cast()~=direction and method=='Raycast','burst preserves namecall context') end
+MOCK.services.UserInputService.GetFocusedTextBox=function() error('input query in hot path') end
+app.Engine.Candidate=function() error('target scan in hot path') end
+s.ShowTracers=false
+for _=1,1000 do assert(fire()~=direction,'burst uses prepared target') end
 MOCK.services.UserInputService.GetFocusedTextBox=focused; app.Engine.Candidate=candidate
-failOriginal=true; local ok,problem=pcall(cast)
-assert(not ok and tostring(problem):find('original failure',1,true),'original errors propagate'); failOriginal=false
-gun.Deactivated:Fire(); silent:Step(3); assert(cast()==direction,'stopping fire closes gate')
+s.ShowTracers=true
+failOriginal=true; local ok,problem=pcall(fire)
+assert(not ok and tostring(problem):find('original failure',1,true),'game errors propagate'); failOriginal=false
+local redirect=silent.Projectile
+silent.Projectile=function() error('adapter error') end
+assert(fire()==direction,'adapter failure preserves original shot'); silent.Projectile=redirect
+velocity=vec(0,0,0); assert(fire()==direction,'zero speed passes unchanged')
+velocity=0/0; assert(fire()==direction,'NaN speed passes unchanged')
+velocity=vec(0,0,300)
 s.Radius=1; silent:Step(4); assert(not silent.prepared,'FOV filter'); s.Radius=160
 workspace.Hit={Instance={IsDescendantOf=function() return false end}}
 silent:Step(5); assert(not silent.prepared,'wall filter'); workspace.Hit=nil
@@ -97,47 +133,45 @@ assert(silent.prepared.Target.Part==targetChar.Children.Torso and silent.prepare
 s.Part='Head'; s.Prediction=false
 s.PauseMenu=true; app.Library:SetOpen(true); silent:Step(11); assert(not silent.prepared and not silent.circle.Visible,'menu pause')
 app.Library:SetOpen(false); app.Engine.focused=false; silent:Step(12); assert(not silent.prepared,'focus pause'); app.Engine.focused=true
--- Both features share exactly one dispatcher and never steer a melee ray as a gun ray.
-gun.Name='Fists'; app.Config.Melee.Enabled=true; app.Config.Melee.AutoAttack=false
-targetChar.Children.Head.Position=vec(5,0,0); targetChar.Children.HumanoidRootPart.Position=vec(5,0,0)
-app.MeleeAura:Step(13); silent:Step(13); gun.Activated:Fire()
-assert(not silent.prepared and app.MeleeAura.target,'weapon scopes are disjoint')
-direction=vec(0,0,1)
-assert(cast()~=direction and installed==1,'melee still works with shared dispatcher')
-direction=vec(0,0,100)
-gun.Name='Pistol'; app.MeleeAura:Step(14); silent:Step(14); gun.Activated:Fire()
-assert(silent.prepared and cast()~=direction and installed==1,'switching back to gun reuses dispatcher')
--- Render sampled real rays, not a line fabricated from the selected target.
-targetChar.Children.Head.Position=vec(6,0,30); targetChar.Children.HumanoidRootPart.Position=vec(6,0,30)
-origin=vec(0,0,1); resultPosition=vec(8,0,32)
-silent:Reset(); silent:Step(20); gun.Activated:Fire(); silent.nextTrace=0
-cast()
-assert(#silent.traceQueue==1 and #silent.tracePool==0,'hook queues data without creating GUI')
+-- Fists remain excluded, and Silent needs no workspace __namecall hook.
+gun.Name='Fists'; silent:Step(13); assert(not silent.prepared,'melee excluded')
+gun.Name='Pistol'; silent:Step(14); assert(silent.prepared and installed==3,'switch reuses hooks')
+assert(getgenv().LegitMeleeRaycastHook==nil,'Silent does not touch workspace Raycast')
+-- Only actual FastCast signals create trace endpoints, not the selected target.
+silent:Reset(); silent:Step(20); silent.nextTrace=0; fire()
+assert(#silent.traceQueue==0 and #silent.tracePool==0,'launch alone is not a fabricated hit/path')
+local endpoint=vec(8,0,32)
+caster.LengthChanged:Fire(origin,origin,endpoint.Unit,endpoint.Magnitude,velocity,bullet)
+assert(#silent.traceQueue==1 and close(silent.traceQueue[1].End,endpoint),'real simulated endpoint recorded')
 local shot=silent.traceQueue[1]
-assert(shot.Redirected and shot.Hit and shot.End==resultPosition and shot.Original==direction,'capture actual client hit and original direction')
-local realTime=os.clock(); silent:Render(realTime)
-assert(#silent.tracePool==1 and silent.tracePool[1].Sent.Visible and silent.tracePool[1].Original.Visible,'original and sent paths rendered')
-assert(silent.tracePool[1].Dot.Position.X==648 and silent.targetDot.Position.X==646,'actual endpoint differs from separately labelled target guide')
-s.Radius=1; silent:Step(21); silent.nextTrace=0
-assert(cast()==direction and silent.traceQueue[1].Reason=='no target','scoped unmodified shot visible when FOV has no target')
+assert(shot.Redirected and not shot.Hit,'segment is not hit confirmation')
+caster.RayHit:Fire(42,origin,direction.Unit,targetChar.Children.Head,endpoint,nil,nil,nil,velocity,bullet)
+assert(shot.Hit and shot.End==endpoint,'actual client hit signal recorded')
 silent:Render(os.clock())
-assert(silent.tracePool[2].Label.Text:find('PASS: no target',1,true),'passthrough reason displayed')
-s.Radius=160; s.HitChance=0; silent:Step(22); silent.nextTrace=0
-assert(cast()==direction and silent.traceQueue[1].Reason=='hit chance','visualization never forces a rejected hit')
-s.HitChance=100
-for _=1,100 do silent.nextTrace=0; cast() end
-assert(#silent.traceQueue==16,'bounded queue under ray bursts')
-silent:Render(os.clock()); assert(#silent.shots==16 and #silent.tracePool==16,'bounded renderer pool')
-silent:Render(os.clock()+s.TraceDuration+1)
-assert(#silent.shots==0 and not silent.tracePool[1].Sent.Visible,'traces expire')
-silent.nextTrace=0; cast(); silent:Render(os.clock())
-s.ShowTracers=false; silent:Render(os.clock())
-assert(#silent.shots==0 and not silent.tracePool[1].Sent.Visible,'disable traces clears existing paths')
-s.ShowTracers=true; s.ShowOriginalRay=false; silent.nextTrace=0; cast(); silent:Render(os.clock())
-assert(not silent.tracePool[1].Original.Visible,'original direction independently hidden')
-silent.nextTrace=0; cast(); silent:Render(os.clock()); silent:Reset()
-assert(#silent.traceQueue==0 and not silent.targetDot.Visible and not silent.tracePool[1].Sent.Visible,'reset clears visuals and pending rays')
-resultPosition=nil
+assert(#silent.tracePool==1 and silent.tracePool[1].Sent.Visible,'actual flight rendered')
+assert(silent.tracePool[1].Dot.Position.X==648 and silent.targetDot.Position.X==646,'target guide distinct from client hit')
+s.Radius=1; silent:Step(21); silent.nextTrace=0; assert(fire()==direction,'no target leaves trajectory intact')
+caster.LengthChanged:Fire(origin,origin,direction.Unit,20,velocity,bullet)
+assert(silent.traceQueue[1].Reason=='no target','unmodified launch reason recorded')
+silent:Render(os.clock()); assert(silent.tracePool[2].Label.Text:find('PASS: no target',1,true),'passthrough label')
+s.Radius=160; silent:Step(22)
+for index=1,100 do
+    bullet=Instance.new('Part'); silent.nextTrace=0; fire()
+    caster.LengthChanged:Fire(origin,origin,direction.Unit,index,velocity,bullet)
+end
+assert(#silent.traceQueue==16,'bounded queue')
+local retained=0; for _ in pairs(silent.projectiles) do retained+=1 end
+assert(retained==16,'bounded active projectile records')
+silent:Render(os.clock()); assert(#silent.shots==16 and #silent.tracePool==16,'bounded visual pool')
+silent:Render(os.clock()+s.TraceDuration+1); assert(#silent.shots==0 and not silent.tracePool[1].Sent.Visible,'expiry')
+silent.nextTrace=0; fire(); caster.LengthChanged:Fire(origin,origin,direction.Unit,20,velocity,bullet); silent:Render(os.clock())
+s.ShowTracers=false; silent:Render(os.clock()); assert(#silent.shots==0 and not silent.tracePool[1].Sent.Visible,'traces disable')
+s.ShowTracers=true; s.ShowOriginalRay=false; silent.nextTrace=0; fire()
+caster.LengthChanged:Fire(origin,origin,direction.Unit,20,velocity,bullet); silent:Render(os.clock())
+assert(not silent.tracePool[1].Original.Visible,'original overlay independently hidden')
+local trackedConnection=silent.casters[1].Connections[1]
+silent:Reset()
+assert(not trackedConnection.Connected and next(silent.projectiles)==nil and #silent.casters==0,'reset disconnects observers')
 local function button(label)
     for _,tab in ipairs(app.Library.windows[1].tabs) do for _,section in ipairs(tab.sections) do
         for _,option in ipairs(section.options) do if option.class=='button' and option.text==label then return option end end
@@ -147,10 +181,17 @@ app.Library.options.Silent_HitChance:SetValue(65); button('Save profile').callba
 app.Library.options.Silent_HitChance:SetValue(0); button('Load profile').callback()
 assert(s.HitChance==65,'silent profile roundtrip')
 button('Reset defaults').callback(); assert(not s.Enabled and s.SkipDowned and s.HitChance==100,'safe defaults')
-local circle=silent.circle; local connection=silent.connection
-local visual= silent.tracePool[1].Sent
+local circle,connection=silent.circle,silent.connection
+local state=silent.projectileHook
 app:Unload()
-assert(not silent.alive and not connection.Connected and not silent.tool and not circle.Visible,'silent cleanup')
-assert(not visual.Visible and next(silent.tracePool)==nil,'tracer graphics released on unload')
-assert(getgenv().LegitMeleeRaycastHook.SilentOwner==nil and getgenv().LegitMeleeRaycastHook.Owner==nil,'shared dispatcher releases both owners')
-print('PASS Silent Aim: independent targeting, FOV/filters, fire/caller/origin scoping, ray length, 1000 safe calls, melee coexistence, profiles and cleanup')
+assert(not silent.alive and not connection.Connected and not circle.Visible and state.Owner==nil,'unload releases adapter')
+assert(fire()==direction,'installed function wrappers pass through after unload')
+-- Reload shares existing native hooks instead of adding new wrapper chains.
+local nextApp=assert(loadstring(SOURCES['main.lua']))()
+local nextSilent=nextApp.SilentAim
+nextApp.Library:SetOpen(false); nextApp.Config.Silent.Enabled=true; nextSilent:Step(30)
+assert(installed==3 and state.Owner==nextSilent,'reload reuses hooks')
+hookfunction=nil; nextSilent:Step(31)
+assert(not nextSilent.prepared and nextSilent.Status:find('hookfunction',1,true),'missing capability is explicit')
+nextApp:Unload()
+print('PASS Silent Aim: initial direction + vector/scalar speed, multi-frame trajectory, gravity, shooter/target filters, bounded real signal traces, 1000 calls, failure passthrough and reload cleanup')

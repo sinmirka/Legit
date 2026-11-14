@@ -1,4 +1,4 @@
--- Camera-independent steering of scoped, real gun rays. No synthetic hit results/remotes.
+-- Steer the initial FastCast trajectory, then observe its real simulation signals.
 local Players=game:GetService('Players')
 local RunService=game:GetService('RunService')
 local Input=game:GetService('UserInputService')
@@ -19,8 +19,8 @@ local function inside(object,parent)
 end
 function Silent.new(config,engine,library,melee)
     local self=setmetatable({config=config,engine=engine,library=library,melee=melee,logger=engine.Logger,
-        alive=true,Counters={},Status='Disabled',connections={},fireUntil=0,lastSummary=0,
-        traceQueue={},shots={},tracePool={}},Silent)
+        alive=true,Counters={},Status='Disabled',lastSummary=0,
+        traceQueue={},shots={},tracePool={},projectiles={},casters={}},Silent)
     self.circle=engine.Drawing.new('Circle')
     self.circle.Filled=false; self.circle.Thickness=1; self.circle.ZIndex=31; self.circle.Visible=false
     self.ray=RaycastParams.new(); self.ray.FilterType=Enum.RaycastFilterType.Exclude; self.ray.IgnoreWater=true
@@ -39,6 +39,11 @@ end
 function Silent:Reset()
     self.prepared,self.gunContext=nil,nil; self.circle.Visible=false
     self.traceQueue={}; self.shots={}
+    self.projectiles={}
+    for _,entry in ipairs(self.casters) do
+        for _,connection in ipairs(entry.Connections) do connection:Disconnect() end
+    end
+    self.casters={}
     for _,slot in ipairs(self.tracePool) do
         for _,object in pairs(slot) do if object.Visible then object.Visible=false end end
     end
@@ -46,30 +51,71 @@ function Silent:Reset()
 end
 function Silent:Equip(tool)
     if self.tool==tool then return end
-    for _,connection in ipairs(self.connections) do connection:Disconnect() end
-    self.connections={}; self.tool=tool; self.firing=false; self.fireUntil=0; self:Reset()
-    if tool then
-        table.insert(self.connections,tool.Activated:Connect(function() self.firing=true; self.fireUntil=os.clock()+0.25 end))
-        table.insert(self.connections,tool.Deactivated:Connect(function() self.firing=false; self.fireUntil=0 end))
-    end
+    self.tool=tool; self:Reset()
 end
-function Silent:SharedCallers()
+function Silent:FastCastModule()
     local modules=Storage:FindFirstChild('NewModules')
     local shared=modules and modules:FindFirstChild('Shared')
     local services=shared and shared:FindFirstChild('Services')
-    local callers={}
-    if services then
-        for _,name in ipairs({'RayHandler','FastCastRedux'}) do
-            local script=services:FindFirstChild(name)
-            if script and script:IsA('ModuleScript') then callers[script]=true end
+    local module=services and services:FindFirstChild('FastCastRedux')
+    return module and module:IsA('ModuleScript') and module or nil
+end
+function Silent:CapabilityProblem()
+    for _,name in ipairs({'hookfunction','getcallingscript','checkcaller'}) do
+        if type(getfenv()[name])~='function' then return 'Unavailable: missing '..name end
+    end
+end
+function Silent:InstallProjectileHook()
+    if self.projectileHook then return true end
+    local module=self:FastCastModule()
+    if not module then return false,'Unavailable: Criminality FastCastRedux not found' end
+    local ok,api=pcall(require,module)
+    if not ok or type(api)~='table' then return false,'Unavailable: cannot load FastCastRedux' end
+    local methods={'Fire','FireWithBlacklist','FireWithWhitelist'}
+    for _,method in ipairs(methods) do
+        if type(api[method])~='function' then return false,'Unavailable: unsupported FastCast API' end
+    end
+    local env=getgenv()
+    env.LegitSilentFastCastHooks=env.LegitSilentFastCastHooks or {}
+    local state=env.LegitSilentFastCastHooks[module]
+    if not state then state={Methods={}}; env.LegitSilentFastCastHooks[module]=state end
+    -- hookfunction also catches references cached by the game's gun controller.
+    for _,method in ipairs(methods) do
+        if not state.Methods[method] then
+            local original
+            local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
+            local installed,problem=pcall(function()
+                original=hookfunction(api[method],wrap(function(...)
+                    local owner=state.Owner
+                    if not owner or not owner.alive or not owner.config.Enabled or checkcaller() then return original(...) end
+                    local args=table.pack(...)
+                    local changed,direction,velocity=pcall(owner.Projectile,owner,getcallingscript(),method,args)
+                    if changed then
+                        if direction then args[4],args[5]=direction,velocity end
+                    else
+                        owner:Count('projectile.error')
+                        owner:Log('error','projectile',tostring(direction),nil,1)
+                    end
+                    -- Game errors and the complete return tuple retain their normal behavior.
+                    return original(table.unpack(args,1,args.n))
+                end))
+                assert(type(original)=='function','hookfunction did not return the original')
+            end)
+            if not installed then
+                self:Log('error','projectile.install',tostring(problem),nil,5)
+                return false,'Unavailable: FastCast hook failed ('..method..')'
+            end
+            state.Methods[method]=true
         end
     end
-    return callers
+    state.Owner=self; self.projectileHook=state
+    self:Log('info','projectile.install','Initial FastCast direction and velocity hook attached')
+    return true
 end
 function Silent:Step(now)
     local s=self.config
     if not self.alive or not s.Enabled then self:Reset(); self:SetStatus('Disabled'); return end
-    local unavailable=self.melee:CapabilityProblem()
+    local unavailable=self:CapabilityProblem()
     if unavailable then self:Reset(); self:SetStatus(unavailable); return end
     if not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
         or self.library:IsPointerOverUI() or (s.PauseMenu and self.library.open) then
@@ -92,13 +138,17 @@ function Silent:Step(now)
         return
     end
     self:Equip(tool)
-    if not self.hook then
-        if not self.melee:InstallHook() then self:Reset(); self:SetStatus(self.melee.Status); return end
-        self.hook=self.melee.hook; self.hook.SilentOwner=self
+    if not self.projectileHook then
+        if self.installing then self:SetStatus('Loading FastCast adapter'); return end
+        if now<(self.nextInstall or 0) then return end
+        self.nextInstall=now+2; self.installing=true
+        local installed,reason=self:InstallProjectileHook()
+        self.installing=false
+        if not installed then self:Reset(); self:SetStatus(reason); return end
     end
     self.ray.FilterDescendantsInstances={character,camera}
     local best,rejected=nil,{}
-    -- Engine target selection runs outside __namecall, with independent settings.
+    -- Target scans and visibility checks stay outside the projectile hook.
     local ok,problem=pcall(function()
         for _,player in ipairs(Players:GetPlayers()) do
             local candidate,reason=self.engine:Candidate(player,camera,root,s,self.ray)
@@ -117,8 +167,7 @@ function Silent:Step(now)
         end
     end)
     if not ok then error(problem) end
-    self.gunContext={Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool,
-        Shared=self:SharedCallers(),FireHeld=Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)}
+    self.gunContext={Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool}
     self.prepared=best and self.gunContext or nil
     self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
@@ -130,27 +179,32 @@ function Silent:Step(now)
         self:Log('info','filters','Rejected target evaluations',rejected)
     end
 end
-function Silent:Redirect(caller,origin,direction,params)
-    -- Properties and cached Lua data only: no Instance methods inside __namecall.
-    local function reject(reason) self:Count('ray.skip.'..reason); return nil end
+function Silent:Projectile(caller,method,args)
+    self:Count('projectile.seen')
+    local function reject(reason) self:Count('projectile.skip.'..reason); return nil end
     local s,p=self.config,self.gunContext
     if not self.alive or not s.Enabled or not self.engine.focused or (s.PauseMenu and self.library.open) then return reject('paused') end
     if not p then return reject('no gun context') end
+    local origin,direction,velocity=args[3],args[4],args[5]
     if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return reject('invalid vector') end
+    local speed=type(velocity)=='number' and velocity or (finite(velocity) and velocity.Magnitude)
+    if not speed or speed~=speed or speed<=0 or speed>=math.huge then return reject('invalid velocity') end
     if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 or self.tool~=p.Tool
         or p.Tool.Parent~=p.Character or not p.Tool.Enabled then return reject('tool/rig') end
     if (origin-p.Root.Position).Magnitude>s.OriginRadius then return reject('distant origin') end
     if not inside(caller,p.Tool) then
-        if not p.Shared[caller] then return reject('caller mismatch') end
-        -- Shared bullet simulation also handles other players; require local shooter exclusions.
-        if not params or params.FilterType~=Enum.RaycastFilterType.Exclude then return reject('shared filter') end
+        -- Public FastCast functions also simulate other players. Only an explicit
+        -- exclusion of our rig/tool authorizes a call from a shared controller.
         local localFilter=false
-        for _,excluded in ipairs(params.FilterDescendantsInstances or {}) do
-            if excluded==p.Character or excluded==p.Tool then localFilter=true; break end
+        if method=='Fire' then
+            localFilter=args[7]==p.Character or args[7]==p.Tool
+        elseif method=='FireWithBlacklist' and type(args[6])=='table' then
+            for _,excluded in ipairs(args[6]) do
+                if excluded==p.Character or excluded==p.Tool then localFilter=true; break end
+            end
         end
         if not localFilter then return reject('shared filter') end
     end
-    -- Sampling only stores Lua/vector data; no GUI or Instance methods in the hook.
     local trace
     local now=os.clock()
     if s.ShowTracers and now>=(self.nextTrace or 0) then
@@ -158,11 +212,11 @@ function Silent:Redirect(caller,origin,direction,params)
         trace={Origin=origin,Original=direction,Sent=direction,Time=now,Redirected=false}
     end
     local function skip(reason)
-        self:Count('ray.skip.'..reason)
-        if trace then trace.Reason=reason end
-        return nil,trace
+        self:Count('projectile.skip.'..reason)
+        if trace then trace.Reason=reason; self:TrackProjectile(args,method,trace) end
+        return nil
     end
-    if not (p.FireHeld or self.firing or os.clock()<self.fireUntil) then return skip('not firing') end
+    -- A scoped FastCast Fire call is the shot, including bursts after mouse release.
     local target=p.Target
     if not target then return skip('no target') end
     if target.Player.Parent~=Players or target.Player.Character~=target.Character
@@ -175,30 +229,79 @@ function Silent:Redirect(caller,origin,direction,params)
     if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return skip('hit chance') end
     local delta=target.Position-origin
     if delta.Magnitude<0.001 then return skip('zero direction') end
-    local sent=delta.Unit*direction.Magnitude
-    if trace then trace.Sent=sent; trace.Redirected=true; trace.Reason='redirected' end
-    return sent,trace
+    local unit=delta.Unit
+    local acceleration=args[9]
+    if finite(acceleration) and acceleration.Magnitude>0.001 then
+        -- Solve |delta/t - acceleration*t/2| = speed for the shorter arc.
+        local distance2=delta.Magnitude^2
+        local b=speed^2+delta.X*acceleration.X+delta.Y*acceleration.Y+delta.Z*acceleration.Z
+        local discriminant=b*b-acceleration.Magnitude^2*distance2
+        if b<=0 or discriminant<0 then return skip('ballistic target unreachable') end
+        local t2=2*distance2/(b+math.sqrt(discriminant))
+        local launch=(delta-acceleration*(t2/2))/math.sqrt(t2)
+        if not finite(launch) or launch.Magnitude<0.001 then return skip('invalid ballistic solution') end
+        unit=launch.Unit
+    end
+    local sent=unit*direction.Magnitude
+    if trace then
+        trace.Sent=sent; trace.Redirected=true; trace.Reason='redirected'
+        self:TrackProjectile(args,method,trace)
+    end
+    self:Count('projectile.redirected')
+    self:Log('trace','projectile.launch','FastCast launch redirected; not server damage confirmation',
+        {Method=method,Speed=speed,Range=direction.Magnitude,Target=target.Player.Name},0.5)
+    return sent,type(velocity)=='number' and velocity or unit*speed
 end
-function Silent:RecordTrace(trace,result)
-    -- Called after the original Raycast. Reading result properties preserves namecall context.
-    local resultType=typeof(result)
-    local position=(resultType=='RaycastResult' or type(result)=='table') and result.Position
-    trace.Hit=finite(position)
-    trace.End=trace.Hit and position or trace.Origin+trace.Sent
+function Silent:QueueTrace(trace)
+    if trace.Queued then return end
+    trace.Queued=true
     if #self.traceQueue>=16 then table.remove(self.traceQueue,1) end
     table.insert(self.traceQueue,trace)
-    if self.logger and self.logger.settings.Enabled then
-        local function vector(v) return string.format('%.2f,%.2f,%.2f',v.X,v.Y,v.Z) end
-        self:Log('trace','shot',trace.Reason,{Origin=vector(trace.Origin),Direction=vector(trace.Sent),
-            End=vector(trace.End),Hit=trace.Hit},0.5)
-    end
 end
-function Silent:ObserveHit(result)
-    self:Count('ray.redirected')
-    if self.logger and self.logger.settings.Enabled and self.logger.settings.CaptureRays then
-        self:Log('trace','ray.result','Client ray result; not server damage confirmation',
-            {Hit=(typeof(result)=='RaycastResult' or type(result)=='table') and result.Instance~=nil or false},0.5)
+function Silent:TrackProjectile(args,method,trace)
+    local caster=args[1]
+    local bullet=args[method=='Fire' and 6 or 7]
+    if not caster or not bullet then return end
+    local found=false
+    for _,entry in ipairs(self.casters) do if entry.Caster==caster then found=true; break end end
+    if not found then
+        if #self.casters>=16 then
+            local old=table.remove(self.casters,1)
+            for _,connection in ipairs(old.Connections) do connection:Disconnect() end
+        end
+        local connections={}
+        local function connect(signal,callback)
+            if signal and type(signal.Connect)=='function' then table.insert(connections,signal:Connect(callback)) end
+        end
+        connect(caster.LengthChanged,function(_,from,unit,length,_,projectile)
+            local shot=self.projectiles[projectile]
+            if not shot or os.clock()-shot.Time>self.config.TraceDuration then return end
+            if finite(from) and finite(unit) and type(length)=='number' and length==length and length>=0 and length<math.huge then
+                shot.End=from+unit*length; self:QueueTrace(shot)
+            end
+        end)
+        connect(caster.RayHit,function(_,_,_,hit,position,_,_,_,_,projectile)
+            local shot=self.projectiles[projectile]
+            if not shot then return end
+            self.projectiles[projectile]=nil
+            if finite(position) then shot.End=position; shot.Hit=hit~=nil; self:QueueTrace(shot) end
+            self:Count(hit and 'projectile.clientHit' or 'projectile.rangeEnd')
+            self:Log('trace','projectile.result','FastCast client result; not server damage confirmation',
+                {Hit=hit~=nil,Redirected=shot.Redirected},0.5)
+        end)
+        table.insert(self.casters,{Caster=caster,Connections=connections})
     end
+    -- Bound retained projectile records independently of missing/late hit signals.
+    local count,oldest,oldestTime=0,nil,math.huge
+    for projectile,shot in pairs(self.projectiles) do
+        if os.clock()-shot.Time>self.config.TraceDuration then self.projectiles[projectile]=nil
+        else
+            count+=1
+            if shot.Time<oldestTime then oldest,oldestTime=projectile,shot.Time end
+        end
+    end
+    if count>=16 then self.projectiles[oldest]=nil end
+    self.projectiles[bullet]=trace
 end
 local function screenPoint(camera,position)
     local p=camera:WorldToViewportPoint(position)
@@ -240,7 +343,7 @@ function Silent:Render(now)
         local object=self.engine.Drawing.new(kind); object.Visible=false; object.ZIndex=35
         return object
     end
-    if not s.ShowTracers then self.traceQueue={}; self.shots={} end
+    if not s.ShowTracers then self.traceQueue={}; self.shots={}; self.projectiles={} end
     for _,shot in ipairs(self.traceQueue) do table.insert(self.shots,shot) end
     self.traceQueue={}
     for index=#self.shots,1,-1 do
@@ -307,7 +410,7 @@ function Silent:Destroy()
     if not self.alive then return end
     self.alive=false; self:Equip(nil)
     if self.connection then self.connection:Disconnect() end
-    if self.hook and self.hook.SilentOwner==self then self.hook.SilentOwner=nil end
+    if self.projectileHook and self.projectileHook.Owner==self then self.projectileHook.Owner=nil end
     for _,slot in ipairs(self.tracePool) do for _,object in pairs(slot) do object:Remove() end end
     if self.targetDot then self.targetDot:Remove(); self.targetLabel:Remove() end
     self.tracePool={}; self.traceQueue={}; self.shots={}

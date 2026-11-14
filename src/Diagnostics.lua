@@ -14,7 +14,7 @@ function Diagnostics:RefreshEnvironment()
     self.environment.PlaceId=game.PlaceId or 'unknown'
     self.environment.GameId=game.GameId or 'unknown'
     self.environment.Build='obsidian-diagnostics-v1'
-    for _,name in ipairs({'hookmetamethod','getnamecallmethod','checkcaller','getcallingscript','newcclosure','writefile','setclipboard'}) do
+    for _,name in ipairs({'hookfunction','hookmetamethod','getnamecallmethod','checkcaller','getcallingscript','newcclosure','writefile','setclipboard'}) do
         self.environment[name]=type(getfenv()[name])=='function'
     end
     if type(identifyexecutor)=='function' then
