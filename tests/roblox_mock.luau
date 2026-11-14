@@ -108,7 +108,7 @@ end}
 services.RunService={RenderStepped=signal(),Heartbeat=signal(),bindings={},priorities={}}
 function services.RunService:BindToRenderStep(name,priority,callback) self.bindings[name]=callback; self.priorities[name]=priority end
 function services.RunService:UnbindFromRenderStep(name) self.bindings[name]=nil end
-services.UserInputService={InputBegan=signal(),InputEnded=signal(),InputChanged=signal(),WindowFocusReleased=signal(),WindowFocused=signal()}
+services.UserInputService={InputBegan=signal(),InputEnded=signal(),InputChanged=signal(),WindowFocusReleased=signal(),WindowFocused=signal(),JumpRequest=signal()}
 function services.UserInputService:GetFocusedTextBox() return nil end
 function services.UserInputService:GetMouseLocation() return vec(10,10) end
 services.UserInputService.Down={}
@@ -116,6 +116,12 @@ function services.UserInputService:IsKeyDown(key) return self.Down[key]==true en
 function services.UserInputService:IsMouseButtonPressed(key) return self.Down[key]==true end
 services.ContextActionService={BindAction=function() end,UnbindAction=function() end}
 services.CoreGui={}
+services.Lighting=Instance.new('Lighting')
+services.Lighting.ClockTime=14
+services.Lighting.ExposureCompensation=0
+services.Lighting.Ambient=Color3.new(0.2,0.2,0.2)
+services.Lighting.OutdoorAmbient=Color3.new(0.3,0.3,0.3)
+services.Lighting.GlobalShadows=true
 services.Stats={Network={ServerStatsItem={['Data Ping']={GetValue=function() return 20 end}}}}
 services.TweenService={GetValue=function(_,alpha) return math.clamp(alpha,0,1) end}
 local json={}

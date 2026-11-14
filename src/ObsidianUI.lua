@@ -158,7 +158,7 @@ function UI:CreateWindow(data)
             end
             function section:AddBox(data)
                 local option=register(data,'box')
-                option.Raw=group:AddInput(data.flag,{Text=data.text,Default=data.input or '',Finished=true,
+                option.Raw=group:AddInput(data.flag,{Text=data.text,Default=data.input or '',Finished=data.finished==true,
                     ClearTextOnFocus=false,Callback=data.callback})
                 function option:SetInput(value) self.Raw:SetValue(value) end
                 return option

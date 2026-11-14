@@ -8,7 +8,7 @@ root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--luau', default='luau')
 args = parser.parse_args()
-sources = ['vendor/Obsidian/Lucide.lua', 'vendor/Obsidian/Library.lua', 'src/ObsidianUI.lua', 'src/Engine.lua', 'src/GuiDrawing.lua', 'src/MeleeAura.lua', 'main.lua', 'loader.lua', 'loader-xeno.lua', 'Legit.lua']
+sources = ['vendor/Obsidian/Lucide.lua', 'vendor/Obsidian/Library.lua', 'src/ObsidianUI.lua', 'src/Engine.lua', 'src/GuiDrawing.lua', 'src/MeleeAura.lua', 'src/UniversalTools.lua', 'main.lua', 'loader.lua', 'loader-xeno.lua', 'Legit.lua']
 main = (root / 'main.lua').read_text(encoding='utf-8')
 transport = main[main.index('-- BEGIN HTTP TRANSPORT'):main.index('-- END HTTP TRANSPORT')]
 assert transport in (root / 'loader.lua').read_text(encoding='utf-8'), 'Rebuild loader.lua with tools/build_loader.py'
@@ -34,7 +34,7 @@ bundle += (root / 'tests/roblox_mock.luau').read_text(encoding='utf-8')
 bundle += (root / 'tests/obsidian_mock.luau').read_text(encoding='utf-8')
 directory = root / '.test-work'
 directory.mkdir(exist_ok=True)
-for name in ['integration', 'obsidian_ui', 'bundle', 'melee']:
+for name in ['integration', 'obsidian_ui', 'bundle', 'melee', 'universal']:
     script = directory / (name + '.luau')
     script.write_text(bundle + (root / 'tests' / (name + '.luau')).read_text(encoding='utf-8'), encoding='utf-8')
     subprocess.run([args.luau, str(script)], check=True)

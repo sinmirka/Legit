@@ -92,6 +92,7 @@ library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
+    Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false},
     ESP={
         Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=false,SkipFriends=false,
         MaxDistance=1500,RefreshRate=30,Opacity=1,FillOpacity=0.35,OutlineOpacity=1,
@@ -129,7 +130,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee
+local engine,melee,tools
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:Unload()
     if not self.Alive then return end
@@ -139,6 +140,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if tools then clean('universal tools',function() tools:Destroy() end) end
     if melee then clean('melee',function() melee:Destroy() end) end
     if engine then clean('engine',function() engine:Destroy() end) end
     clean('UI',function() library:Unload() end)
@@ -152,7 +154,10 @@ local ok,message=xpcall(function()
     app.Engine=engine
     melee=remote('src/MeleeAura.lua')().new(config.Melee,engine,library)
     app.MeleeAura=melee
+    tools=remote('src/UniversalTools.lua')().new(config,engine,library)
+    app.Tools=tools
     library.unloaded:Connect(function()
+        if tools then pcall(tools.Destroy,tools) end
         if melee then pcall(melee.Destroy,melee) end
         if engine then pcall(engine.Destroy,engine) end
         if renderer then renderer:Destroy() end
@@ -166,6 +171,9 @@ local ok,message=xpcall(function()
         position=UDim2.fromOffset(math.max(10,(viewport.X-660)/2),math.max(10,(viewport.Y-680)/2)),
     })
     local registered={}
+    local function refreshTools(group)
+        if group=='Character' or group=='World' then tools:Step() end
+    end
     local function flag(group,key) return group..'_'..key end
     local function remember(group,key,option,kind,choices)
         registered[#registered+1]={Group=group,Key=key,Option=option,Kind=kind,Choices=choices,Default=config[group][key]}
@@ -174,6 +182,7 @@ local ok,message=xpcall(function()
     local function toggle(section,label,group,key)
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
+            refreshTools(group)
             if group=='Melee' then melee:Reset() end
             if group=='Aim' and (key=='Enabled' or key=='PauseMenu') then engine.toggled=false; engine:ResetTarget() end
         end})
@@ -183,6 +192,7 @@ local ok,message=xpcall(function()
         return remember(group,key,section:AddSlider({text=label,flag=flag(group,key),value=config[group][key],min=min,max=max,
             increment=step or 1,suffix=suffix or '',callback=function(value)
                 config[group][key]=value
+                refreshTools(group)
                 if group=='Melee' then melee:Reset() end
                 if group=='Interface' and key=='Scale' then library.Obsidian:SetDPIScale(value) end
             end}),'slider')
@@ -190,6 +200,7 @@ local ok,message=xpcall(function()
     local function select(section,label,group,key,choices)
         local option=section:AddList({text=label,flag=flag(group,key),selected=config[group][key],values=choices,callback=function(value)
             config[group][key]=value
+            refreshTools(group)
             if group=='Melee' then melee:Reset() end
             if group=='Aim' then engine.held=false; engine.toggled=false; engine:ResetTarget() end
         end})
@@ -199,6 +210,7 @@ local ok,message=xpcall(function()
     local function color(section,label,group,key)
         return remember(group,key,section:AddColor({text=label,flag=flag(group,key),color=config[group][key],callback=function(value,transparency)
             config[group][key]=value
+            refreshTools(group)
             config.Alpha[flag(group,key)]=1-transparency
             if group=='Interface' then library.theme.Accent=value; library:SetTheme(library.theme) end
         end}),'color')
@@ -331,6 +343,16 @@ local ok,message=xpcall(function()
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
     tabs.Character:AddSection('Character',1):AddText({text='Game-specific stamina, fall damage and ragdoll changes are not included.'})
     tabs.ESP:AddSection('Values / Misc ESP',2):AddText({text='Game-specific loot, dealers and infection ESP are not included.'})
+    left,right=sections('Character','Character / Universal','Speed options')
+    toggle(left,'Noclip','Character','Noclip')
+    toggle(left,'Infinite jump','Character','InfiniteJump')
+    toggle(left,'Override jump','Character','JumpOverride')
+    slider(left,'Jump power','Character','JumpPower',0,150,1)
+    slider(left,'Jump height','Character','JumpHeight',0,30,0.1,' studs')
+    toggle(right,'Walk speed','Character','WalkSpeed')
+    slider(right,'Speed value','Character','Speed',0,150,1)
+    right:AddText({text='Jump power or height follows the game jump mode.'})
+    right:AddText({text='Server movement limits can still apply.'})
     left,right=sections('Profiles','Local profiles','Interface')
     local profileName='default'
     left:AddBox({text='Profile name',flag='profile_name',input=profileName,callback=function(value) profileName=value end})
@@ -422,6 +444,7 @@ local ok,message=xpcall(function()
     end)
     engine:Start()
     melee:Start()
+    tools:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end
