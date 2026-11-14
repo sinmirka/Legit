@@ -18,6 +18,12 @@ assert(app.Config.Colors.Fill.R==0 and math.abs(app.Config.Alpha.Colors_Fill-0.4
 ui:SetOpen(false); assert(not ui.open,'open state follows Neverlose')
 ui.Window:SetOpen(true); assert(ui.open,'Neverlose hotkey state immediately visible')
 local input=MOCK.services.UserInputService
+input.MouseBehavior=Enum.MouseBehavior.LockCenter; input.MouseIconEnabled=false
+MOCK.services.RunService.RenderStepped:Fire(0)
+assert(input.MouseBehavior==Enum.MouseBehavior.Default and input.MouseIconEnabled,'open menu unlocks first-person mouse')
+ui:SetOpen(false)
+assert(input.MouseBehavior==Enum.MouseBehavior.LockCenter and not input.MouseIconEnabled,'closing restores camera mouse state')
+ui:SetOpen(true)
 local originalMouse=input.GetMouseLocation
 input.GetMouseLocation=function() return MOCK.vec(210,110) end
 assert(ui:IsPointerOverUI(),'pointer over main frame')

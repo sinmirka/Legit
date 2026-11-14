@@ -1,5 +1,6 @@
 -- Bridge the application option/profile contract to the vendored Neverlose controls.
 local Input=game:GetService('UserInputService')
+local RunService=game:GetService('RunService')
 local UI={}
 UI.__index=function(self,key)
     if key=='open' then return self.Window and self.Window.Main.Visible or false end
@@ -28,12 +29,24 @@ function UI.new(native)
         if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then self.dragging=false end
     end)
     connect(Input.WindowFocusReleased,function() self.dragging=false end)
+    connect(RunService.RenderStepped,function() self:UpdateMouse() end)
     return self
 end
 function UI:init() self.hasInit=true end
+function UI:UpdateMouse()
+    if self.Alive and self.open then
+        if not self.mouseState then self.mouseState={Behavior=Input.MouseBehavior,Icon=Input.MouseIconEnabled} end
+        Input.MouseBehavior=Enum.MouseBehavior.Default; Input.MouseIconEnabled=true
+    elseif self.mouseState then
+        if Input.MouseBehavior==Enum.MouseBehavior.Default then Input.MouseBehavior=self.mouseState.Behavior end
+        if Input.MouseIconEnabled==true then Input.MouseIconEnabled=self.mouseState.Icon end
+        self.mouseState=nil
+    end
+end
 function UI:SetOpen(value)
     if not self.Window then return end
     self.Window:SetOpen(value)
+    self:UpdateMouse()
     if not value then
         for _,child in ipairs(self.Gui:GetChildren()) do
             if child~=self.Window.Main and child:IsA('GuiObject') and child.Name~='LegitStatus' then child.Visible=false end
@@ -87,6 +100,7 @@ function UI:IsInteracting() return self.dragging==true or self.Native.IsPicking=
 function UI:Unload()
     if not self.Alive then return end
     self.Alive=false
+    self:UpdateMouse()
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
     self.unloaded:Fire()
     if self.Window then self.Window:Destroy() end

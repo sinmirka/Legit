@@ -82,6 +82,7 @@ end
 
 local function Label(props)
     props.BackgroundTransparency = 1
+    props.TextWrapped = true
     props.Font = props.Font or Theme.Font
     props.TextSize = props.TextSize or Theme.TextSize
     props.TextColor3 = props.TextColor3 or Theme.Text
@@ -361,7 +362,7 @@ function Library:CreateWindow(cfg)
                 function G:AddCheckbox(o)
                     o = type(o) == "string" and { Name = o } or o
                     local state = o.Default or false
-                    local r = row(17)
+                    local r = row(math.max(17,math.ceil(#o.Name/27)*14))
                     local lbl = Label({ Text = o.Name, Size = UDim2.new(1, -40, 1, 0), TextColor3 = state and Theme.Text or Theme.TextDisabled, Parent = r })
                     if o.Icon then
                         Icon(o.Icon, 12, lbl.TextColor3, { Position = UDim2.fromOffset(lbl.TextBounds.X + 4, 2), Parent = r })
@@ -394,7 +395,7 @@ function Library:CreateWindow(cfg)
                     local min, max = o.Min or 0, o.Max or 100
                     local val = math.clamp(o.Default or min, min, max)
                     local suffix = o.Suffix or ""
-                    local r = row(16)
+                    local r = row(math.max(16,math.ceil(#o.Name/14)*14))
                     Label({ Text = o.Name, TextColor3 = Theme.TextDisabled, Size = UDim2.new(1, -135, 1, 0), Parent = r })
                     local bar = New("TextButton", {
                         Size = UDim2.fromOffset(92, 4), Position = UDim2.new(1, -130, 0, 6),
@@ -442,7 +443,7 @@ function Library:CreateWindow(cfg)
                 function G:AddDropdown(o)
                     local items = o.Items or {}
                     local sel = o.Default or items[1]
-                    local r = row(20)
+                    local r = row(math.max(20,math.ceil(#o.Name/14)*14))
                     r.ZIndex = 5
                     Label({ Text = o.Name, TextColor3 = Theme.TextDisabled, Size = UDim2.new(1, -135, 1, 0), Parent = r })
                     local box = New("TextButton", {
@@ -513,7 +514,7 @@ function Library:CreateWindow(cfg)
                 G.AddCombo = G.AddDropdown
 
                 function G:AddTextbox(o)
-                    local r = row(20)
+                    local r = row(math.max(20,math.ceil(#o.Name/14)*14))
                     Label({ Text = o.Name, TextColor3 = Theme.TextDisabled, Size = UDim2.new(1, -135, 1, 0), Parent = r })
                     local frame = New("Frame", {
                         Size = UDim2.fromOffset(130, 20), Position = UDim2.new(1, -130, 0, 0),
@@ -543,7 +544,7 @@ function Library:CreateWindow(cfg)
                 function G:AddColorPicker(o)
                     local h, s, v = (o.Default or Color3.new(1, 1, 1)):ToHSV()
                     local alpha = o.Alpha or 1
-                    local r = row(16)
+                    local r = row(math.max(16,math.ceil(#o.Name/14)*14))
                     Label({ Text = o.Name, TextColor3 = Theme.TextDisabled, Size = UDim2.new(1, -30, 1, 0), Parent = r })
                     local prev = New("TextButton", {
                         Size = UDim2.fromOffset(16, 16), Position = UDim2.new(1, -16, 0, 0),
@@ -730,6 +731,7 @@ return Library
 ]====]
 files["src/NeverloseUI.lua"]=[====[-- Bridge the application option/profile contract to the vendored Neverlose controls.
 local Input=game:GetService('UserInputService')
+local RunService=game:GetService('RunService')
 local UI={}
 UI.__index=function(self,key)
     if key=='open' then return self.Window and self.Window.Main.Visible or false end
@@ -758,12 +760,24 @@ function UI.new(native)
         if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then self.dragging=false end
     end)
     connect(Input.WindowFocusReleased,function() self.dragging=false end)
+    connect(RunService.RenderStepped,function() self:UpdateMouse() end)
     return self
 end
 function UI:init() self.hasInit=true end
+function UI:UpdateMouse()
+    if self.Alive and self.open then
+        if not self.mouseState then self.mouseState={Behavior=Input.MouseBehavior,Icon=Input.MouseIconEnabled} end
+        Input.MouseBehavior=Enum.MouseBehavior.Default; Input.MouseIconEnabled=true
+    elseif self.mouseState then
+        if Input.MouseBehavior==Enum.MouseBehavior.Default then Input.MouseBehavior=self.mouseState.Behavior end
+        if Input.MouseIconEnabled==true then Input.MouseIconEnabled=self.mouseState.Icon end
+        self.mouseState=nil
+    end
+end
 function UI:SetOpen(value)
     if not self.Window then return end
     self.Window:SetOpen(value)
+    self:UpdateMouse()
     if not value then
         for _,child in ipairs(self.Gui:GetChildren()) do
             if child~=self.Window.Main and child:IsA('GuiObject') and child.Name~='LegitStatus' then child.Visible=false end
@@ -817,6 +831,7 @@ function UI:IsInteracting() return self.dragging==true or self.Native.IsPicking=
 function UI:Unload()
     if not self.Alive then return end
     self.Alive=false
+    self:UpdateMouse()
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
     self.unloaded:Fire()
     if self.Window then self.Window:Destroy() end
