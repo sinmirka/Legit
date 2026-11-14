@@ -8,7 +8,7 @@ for _,path in ipairs({'Legit','Legit/Universal','Legit/Universal/probes',root}) 
         if not ok and not (type(isfolder)=='function' and isfolder(path)) then error(problem) end
     end
 end
-local rows={'Legit gun pipeline probe v1','PlaceId='..tostring(game.PlaceId)}
+local rows={'Legit gun pipeline probe v2','PlaceId='..tostring(game.PlaceId)}
 for _,name in ipairs({'decompile','hookfunction','hookmetamethod','getnamecallmethod','checkcaller','getcallingscript'}) do
     table.insert(rows,name..'='..type(getfenv()[name]))
 end
@@ -34,10 +34,13 @@ local function inspect(script,label)
     count+=1; note(label..': exported '..filename..' ('..#source..' bytes)')
 end
 local storage=game:GetService('ReplicatedStorage')
+inspect(pathFrom(storage,{'NewModules','Shared','Extensions','LoadGun'}),'extension-LoadGun')
 for _,name in ipairs({'RayHandler','FastCastRedux'}) do
     inspect(pathFrom(storage,{'NewModules','Shared','Services',name}),'service-'..name)
 end
 local character=game:GetService('Players').LocalPlayer.Character
+local equipped=character and character:FindFirstChildOfClass('Tool')
+inspect(equipped and equipped:FindFirstChild('Gun'),'gun-Gun')
 local tool=character and character:FindFirstChildOfClass('Tool')
 note('EquippedTool='..(tool and tool.Name or 'none; equip the failing gun and rerun'))
 if tool then
