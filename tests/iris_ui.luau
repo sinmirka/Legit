@@ -49,6 +49,26 @@ local save=button.callback
 button.callback=function() assert(not ir.InCycle,'actions execute outside Iris cycle'); calls+=1; save() end
 ir.Clicks[button.id]=true; ui:Cycle(0); ui:Cycle(0)
 assert(calls==1,'button action fires once, not every frame')
+options.Aim_Key:SetBind('none')
+ui:SetOpen(true)
+local menuInput={UserInputType=Enum.UserInputType.Keyboard,KeyCode=Enum.KeyCode.RightShift}
+input.InputBegan:Fire(menuInput,true); assert(not ui.open,'processed RightShift hides menu')
+input.InputBegan:Fire(menuInput,true); assert(ui.open,'processed RightShift reopens menu')
+local focus=input.GetFocusedTextBox
+local textBox=Instance.new('TextBox'); textBox.Parent=ir.Internal._rootInstance
+local released=false; function textBox:ReleaseFocus() released=true end
+input.GetFocusedTextBox=function() return textBox end
+input.InputBegan:Fire(menuInput,true)
+assert(not ui.open and released,'RightShift closes own focused input and releases focus')
+ui:SetMenuKey(Enum.KeyCode.Q); ui:SetOpen(true)
+input.InputBegan:Fire({UserInputType=Enum.UserInputType.Keyboard,KeyCode=Enum.KeyCode.Q},true)
+assert(ui.open,'printable custom hotkey does not interrupt typing')
+input.GetFocusedTextBox=focus
+input.InputBegan:Fire({UserInputType=Enum.UserInputType.Keyboard,KeyCode=Enum.KeyCode.Q},true)
+assert(not ui.open,'custom menu key works outside typing')
+ui:SetMenuKey('none'); ui:SetOpen(true)
+input.InputBegan:Fire({UserInputType=Enum.UserInputType.MouseButton1,KeyCode=Enum.KeyCode.Unknown},false)
+assert(ui.open,'cleared menu key does not match mouse Unknown keycode')
 ui:Unload()
 assert(not app.Alive and not ui.Alive and ir.ShutdownCalled and not app.DrawingRenderer.Alive,'Iris shutdown cleans app')
 local old=app.Config.Aim.Radius; options.Aim_Radius.State:set(300)

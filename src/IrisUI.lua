@@ -31,7 +31,7 @@ function UI.new(native)
     self.openState=self:State('open',true,function() self:UpdateMouse() end)
     self.NewWindow=function(data) return self:CreateWindow(data) end
     local function connect(event,fn) table.insert(self.connections,event:Connect(fn)) end
-    connect(Input.InputBegan,function(input,processed)
+    connect(Input.InputBegan,function(input)
         if self.listening then
             local key
             if input.UserInputType==Enum.UserInputType.Keyboard then key=input.KeyCode
@@ -39,7 +39,17 @@ function UI.new(native)
             if key then local option=self.listening; self.listening=nil; option:SetBind(key) end
             return
         end
-        if not processed and input.KeyCode==self.toggleKey and not Input:GetFocusedTextBox() then self:SetOpen(not self.open) end
+        local key=self.toggleKey
+        if key and key~=Enum.KeyCode.Unknown and (input.KeyCode==key or input.UserInputType==key) then
+            local focused=Input:GetFocusedTextBox()
+            local nonTextKey=key==Enum.KeyCode.RightShift or key==Enum.KeyCode.LeftShift or key==Enum.KeyCode.Insert
+                or key.Name:match('^F%d+$')~=nil
+            if not focused or nonTextKey then
+                local root=self.Native.Internal._rootInstance
+                if focused and root and focused:IsDescendantOf(root) then focused:ReleaseFocus() end
+                self:SetOpen(not self.open)
+            end
+        end
         if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then self.dragging=self:IsPointerOverUI() end
     end)
     connect(Input.InputEnded,function(input)
