@@ -76,7 +76,7 @@ end
 function object:IsDescendantOf(parent) return parent==workspace or parent==self.Parent end
 function object:GetAttribute(name) return self.Attributes and self.Attributes[name] end
 function object:GetState() return self.State or Enum.HumanoidStateType.Running end
-Instance={new=function(class) return setmetatable({ClassName=class,Children={},Destroying=signal(),Activated=signal(),FocusLost=signal(),
+Instance={new=function(class) return setmetatable({ClassName=class,Children={},Destroying=signal(),Activated=signal(),Deactivated=signal(),FocusLost=signal(),
     InputBegan=signal(),InputChanged=signal(),InputEnded=signal(),AbsolutePosition=vec(200,100),AbsoluteSize=vec(690,620),__type='Instance'},object) end}
 RaycastParams={new=function() return {} end}
 local drawMeta={}

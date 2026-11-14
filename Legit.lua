@@ -17052,20 +17052,20 @@ function Engine:TrackFriend(other)
 end
 function Engine:Allowed(other, settings)
     if other == self.player or other.Parent ~= Players then return false end
-    if self.playerModes[other.UserId]=='Friend' and (settings==self.config.Aim or settings==self.config.Melee) then return false end
+    if self.playerModes[other.UserId]=='Friend' and (settings==self.config.Aim or settings==self.config.Melee or settings==self.config.Silent) then return false end
     if settings.TeamCheck and sameTeam(self.player, other) then return false end
     if settings.SkipFriends and self.friends[other] then return false end
     return true
 end
 function Engine:TargetRank(other) return self.playerModes[other.UserId]=='Enemy' and 0 or 1 end
-function Engine:Visible(character, position, camera)
+function Engine:Visible(character, position, camera, ray)
     local delta = position - camera.CFrame.Position
     if delta.Magnitude < 0.01 then return true end
-    local hit = workspace:Raycast(camera.CFrame.Position, delta, self.ray)
+    local hit = workspace:Raycast(camera.CFrame.Position, delta, ray or self.ray)
     return not hit or hit.Instance:IsDescendantOf(character)
 end
-function Engine:Candidate(other, camera, localRoot)
-    local a = self.config.Aim
+function Engine:Candidate(other, camera, localRoot, settings, ray)
+    local a = settings or self.config.Aim
     if other==self.player then return nil,'self' end
     if a.TeamCheck and sameTeam(self.player,other) then return nil,'team' end
     if not self:Allowed(other, a) then return nil,'friend' end
@@ -17087,7 +17087,7 @@ function Engine:Candidate(other, camera, localRoot)
     if not onScreen then return nil,'offscreen' end
     local pixels = (screen - camera.ViewportSize/2).Magnitude
     if pixels > a.Radius then return nil,'FOV' end
-    if a.WallCheck and not self:Visible(character, part.Position, camera) then return nil,'wall' end
+    if a.WallCheck and not self:Visible(character, part.Position, camera, ray) then return nil,'wall' end
     local score = pixels
     if a.Priority == 'Distance' then score = distance end
     if a.Priority == 'Lowest health' then score = humanoid.Health end
@@ -17755,7 +17755,7 @@ function MeleeAura:InstallHook()
     local env=getgenv()
     local state=env.LegitMeleeRaycastHook
     -- Upgrade the old dispatcher once; leave its owner empty so it stays transparent.
-    if state and state.Version~=3 then state.Owner=nil; state=nil end
+    if state and state.Version~=4 then state.Owner=nil; state.SilentOwner=nil; state=nil end
     if not state then
         local unavailable=self:CapabilityProblem()
         if unavailable then
@@ -17763,7 +17763,7 @@ function MeleeAura:InstallHook()
             self:Log('error','capabilities',self.Status,nil,5)
             return false
         end
-        state={Version=3}
+        state={Version=4}
         local previous
         local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
         local ok,result=pcall(function()
@@ -17772,21 +17772,28 @@ function MeleeAura:InstallHook()
                 -- dispatcher: it can replace the executor's active namecall method.
                 local method=getnamecallmethod()
                 local owner=state.Owner
-                if method=='Raycast' and owner and owner.alive and owner.config.Enabled
-                    and receiver==workspace and not checkcaller() then
+                local silent=state.SilentOwner
+                local meleeActive=owner and owner.alive and owner.config.Enabled
+                local silentActive=silent and silent.alive and silent.config.Enabled
+                if method=='Raycast' and (meleeActive or silentActive) and receiver==workspace and not checkcaller() then
                     local args=table.pack(...)
-                    local succeeded,direction=pcall(function()
-                        owner:Count('ray.seen')
-                        return owner:Redirect(getcallingscript(),args[1],args[2])
-                    end)
-                    if not succeeded then
-                        owner:Count('hook.error')
-                        owner:Log('error','hook',tostring(direction),nil,1)
+                    local function redirect(feature)
+                        local succeeded,direction=pcall(function()
+                            feature:Count('ray.seen')
+                            return feature:Redirect(getcallingscript(),args[1],args[2],args[3])
+                        end)
+                        if not succeeded then
+                            feature:Count('hook.error')
+                            feature:Log('error','hook',tostring(direction),nil,1)
+                        elseif direction then return direction end
                     end
-                    if succeeded and direction then
+                    local direction=meleeActive and redirect(owner)
+                    local chosen=direction and owner
+                    if not direction and silentActive then direction=redirect(silent); chosen=direction and silent end
+                    if direction then
                         args[2]=direction
                         local results=table.pack(previous(receiver,table.unpack(args,1,args.n)))
-                        pcall(owner.ObserveHit,owner,results[1])
+                        pcall(chosen.ObserveHit,chosen,results[1])
                         return table.unpack(results,1,results.n)
                     end
                 end
@@ -17944,6 +17951,187 @@ function MeleeAura:Destroy()
     if self.hook and self.hook.Owner==self then self.hook.Owner=nil end
 end
 return MeleeAura
+]====]
+files["src/SilentAim.lua"]=[====[-- Camera-independent steering of scoped, real gun rays. No synthetic hit results/remotes.
+local Players=game:GetService('Players')
+local RunService=game:GetService('RunService')
+local Input=game:GetService('UserInputService')
+local Storage=game:GetService('ReplicatedStorage')
+local Silent={}
+Silent.__index=Silent
+local function finite(v)
+    return typeof(v)=='Vector3' and v.X==v.X and v.Y==v.Y and v.Z==v.Z
+        and math.abs(v.X)<math.huge and math.abs(v.Y)<math.huge and math.abs(v.Z)<math.huge
+end
+local function inside(object,parent)
+    for _=1,64 do
+        if not object then return false end
+        if object==parent then return true end
+        object=object.Parent
+    end
+    return false
+end
+function Silent.new(config,engine,library,melee)
+    local self=setmetatable({config=config,engine=engine,library=library,melee=melee,logger=engine.Logger,
+        alive=true,Counters={},Status='Disabled',connections={},fireUntil=0,lastSummary=0},Silent)
+    self.circle=engine.Drawing.new('Circle')
+    self.circle.Filled=false; self.circle.Thickness=1; self.circle.ZIndex=31; self.circle.Visible=false
+    self.ray=RaycastParams.new(); self.ray.FilterType=Enum.RaycastFilterType.Exclude; self.ray.IgnoreWater=true
+    return self
+end
+function Silent:Count(reason)
+    if self.logger and self.logger.settings.Enabled then self.Counters[reason]=(self.Counters[reason] or 0)+1 end
+end
+function Silent:Log(level,event,message,data,interval)
+    if self.logger then self.logger:Write(level,'Silent',event,message,data,interval) end
+end
+function Silent:SetStatus(value)
+    self.Status=value
+    if self.logger then self.logger:State('Silent','status',value) end
+end
+function Silent:Reset() self.prepared=nil; self.circle.Visible=false end
+function Silent:Equip(tool)
+    if self.tool==tool then return end
+    for _,connection in ipairs(self.connections) do connection:Disconnect() end
+    self.connections={}; self.tool=tool; self.firing=false; self.fireUntil=0; self:Reset()
+    if tool then
+        table.insert(self.connections,tool.Activated:Connect(function() self.firing=true; self.fireUntil=os.clock()+0.25 end))
+        table.insert(self.connections,tool.Deactivated:Connect(function() self.firing=false; self.fireUntil=0 end))
+    end
+end
+function Silent:SharedCallers()
+    local modules=Storage:FindFirstChild('NewModules')
+    local shared=modules and modules:FindFirstChild('Shared')
+    local services=shared and shared:FindFirstChild('Services')
+    local callers={}
+    if services then
+        for _,name in ipairs({'RayHandler','FastCastRedux'}) do
+            local script=services:FindFirstChild(name)
+            if script and script:IsA('ModuleScript') then callers[script]=true end
+        end
+    end
+    return callers
+end
+function Silent:Step(now)
+    local s=self.config
+    if not self.alive or not s.Enabled then self:Reset(); self:SetStatus('Disabled'); return end
+    local unavailable=self.melee:CapabilityProblem()
+    if unavailable then self:Reset(); self:SetStatus(unavailable); return end
+    if not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
+        or self.library:IsPointerOverUI() or (s.PauseMenu and self.library.open) then
+        self:Reset(); self:SetStatus('Paused by input / menu'); return
+    end
+    local character=Players.LocalPlayer.Character
+    local humanoid=character and character:FindFirstChildOfClass('Humanoid')
+    local root=character and character:FindFirstChild('HumanoidRootPart')
+    local camera=workspace.CurrentCamera
+    if not character or not humanoid or humanoid.Health<=0 or not root or not camera then
+        self:Equip(nil); self:Reset(); self:SetStatus('Waiting for character / camera'); return
+    end
+    local tool=character:FindFirstChildOfClass('Tool')
+    local values=tool and tool:FindFirstChild('Values')
+    local ammo=values and (values:FindFirstChild('SERVER_Ammo') or values:FindFirstChild('Ammo') or values:FindFirstChild('StoredAmmo'))
+    if not tool or not tool.Enabled or self.melee:IsMeleeTool(tool) or not ammo then
+        self:Equip(nil); self:Reset()
+        self:SetStatus(tool and not self.melee:IsMeleeTool(tool) and not ammo
+            and 'Unsupported gun: ammo values not found' or 'Equip an enabled gun')
+        return
+    end
+    self:Equip(tool)
+    if not self.hook then
+        if not self.melee:InstallHook() then self:Reset(); self:SetStatus(self.melee.Status); return end
+        self.hook=self.melee.hook; self.hook.SilentOwner=self
+    end
+    self.ray.FilterDescendantsInstances={character,camera}
+    local best,rejected=nil,{}
+    -- Engine target selection runs outside __namecall, with independent settings.
+    local ok,problem=pcall(function()
+        for _,player in ipairs(Players:GetPlayers()) do
+            local candidate,reason=self.engine:Candidate(player,camera,root,s,self.ray)
+            if candidate then
+                local targetChar=player.Character
+                local targetHum=targetChar:FindFirstChildOfClass('Humanoid')
+                local downed,flags=false,nil
+                if s.SkipDowned then downed,flags=self.melee:DownedState(player,targetChar,targetHum) end
+                if downed then candidate=nil; reason='downed/ragdoll'
+                else candidate.Character=targetChar; candidate.Humanoid=targetHum; candidate.DownedFlags=flags end
+            end
+            if candidate and (not best or self.engine:TargetRank(player)<self.engine:TargetRank(best.Player)
+                or (self.engine:TargetRank(player)==self.engine:TargetRank(best.Player) and (candidate.Score<best.Score
+                    or (candidate.Score==best.Score and player.UserId<best.Player.UserId)))) then best=candidate end
+            if reason and reason~='self' then rejected[reason]=(rejected[reason] or 0)+1 end
+        end
+    end)
+    if not ok then error(problem) end
+    self.prepared=best and {Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool,
+        Shared=self:SharedCallers(),FireHeld=Input:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)} or nil
+    self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
+    self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
+    self.circle.Visible=s.ShowFOV
+    self:SetStatus(best and ('Target: @'..best.Player.Name) or 'No target in FOV')
+    if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
+        self.lastSummary=now
+        self:Log('info','summary',self.Status,self.Counters)
+        self:Log('info','filters','Rejected target evaluations',rejected)
+    end
+end
+function Silent:Redirect(caller,origin,direction,params)
+    -- Properties and cached Lua data only: no Instance methods inside __namecall.
+    local function reject(reason) self:Count('ray.skip.'..reason); return nil end
+    local s,p=self.config,self.prepared
+    if not self.alive or not s.Enabled or not self.engine.focused or (s.PauseMenu and self.library.open) then return reject('paused') end
+    if not p then return reject('no target') end
+    if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return reject('invalid vector') end
+    if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 or self.tool~=p.Tool
+        or p.Tool.Parent~=p.Character or not p.Tool.Enabled then return reject('tool/rig') end
+    if not (p.FireHeld or self.firing or os.clock()<self.fireUntil) then return reject('not firing') end
+    if (origin-p.Root.Position).Magnitude>s.OriginRadius then return reject('distant origin') end
+    if not inside(caller,p.Tool) then
+        if not p.Shared[caller] then return reject('caller mismatch') end
+        -- Shared bullet simulation also handles other players; require local shooter exclusions.
+        if not params or params.FilterType~=Enum.RaycastFilterType.Exclude then return reject('shared filter') end
+        local localFilter=false
+        for _,excluded in ipairs(params.FilterDescendantsInstances) do
+            if excluded==p.Character or excluded==p.Tool then localFilter=true; break end
+        end
+        if not localFilter then return reject('shared filter') end
+    end
+    local target=p.Target
+    if target.Player.Parent~=Players or target.Player.Character~=target.Character
+        or target.Humanoid.Health<=0 or target.Humanoid.Health<s.MinHealth or target.Part.Parent~=target.Character
+        or (target.Part.Position-p.Root.Position).Magnitude>s.MaxDistance then return reject('target invalidated') end
+    if s.SkipDowned then
+        if target.Humanoid.PlatformStand then return reject('downed/ragdoll') end
+        for _,flag in ipairs(target.DownedFlags or {}) do if flag.Value then return reject('downed/ragdoll') end end
+    end
+    if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return reject('hit chance') end
+    local delta=target.Position-origin
+    if delta.Magnitude<0.001 then return reject('zero direction') end
+    return delta.Unit*direction.Magnitude
+end
+function Silent:ObserveHit(result)
+    self:Count('ray.redirected')
+    if self.logger and self.logger.settings.Enabled and self.logger.settings.CaptureRays then
+        self:Log('trace','ray.result','Client ray result; not server damage confirmation',
+            {Hit=(typeof(result)=='RaycastResult' or type(result)=='table') and result.Instance~=nil or false},0.5)
+    end
+end
+function Silent:Start()
+    local nextUpdate=0
+    self.connection=RunService.Heartbeat:Connect(function()
+        local now=os.clock(); if now<nextUpdate then return end; nextUpdate=now+1/30
+        local ok,problem=xpcall(function() self:Step(now) end,debug.traceback)
+        if not ok then self:Reset(); self:SetStatus('Error in silent update'); self:Log('error','heartbeat',problem,nil,1) end
+    end)
+end
+function Silent:Destroy()
+    if not self.alive then return end
+    self.alive=false; self:Equip(nil)
+    if self.connection then self.connection:Disconnect() end
+    if self.hook and self.hook.SilentOwner==self then self.hook.SilentOwner=nil end
+    self.circle:Remove()
+end
+return Silent
 ]====]
 files["src/UniversalTools.lua"]=[====[local Players=game:GetService('Players')
 local RunService=game:GetService('RunService')
@@ -18312,6 +18500,10 @@ local config={
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=false,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
+    Silent={Enabled=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
+        SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
+        HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
+        Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
         TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
@@ -18323,7 +18515,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,tools,logger
+local engine,melee,silent,tools,logger
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -18333,6 +18525,11 @@ function app:DebugContext()
         Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,SkipDowned=config.Melee.SkipDowned,
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
+    data.SilentStatus=silent and silent.Status or 'not started'
+    data.SilentEnabled=config.Silent.Enabled
+    data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
+    data.SilentHitChance=config.Silent.HitChance; data.SilentMaxDistance=config.Silent.MaxDistance
+    if silent then for key,value in pairs(silent.Counters) do data['Silent.'..key]=value end end
     return data
 end
 function app:Unload()
@@ -18345,6 +18542,7 @@ function app:Unload()
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
     if tools then clean('universal tools',function() tools:Destroy() end) end
+    if silent then clean('silent aim',function() silent:Destroy() end) end
     if melee then clean('melee',function() melee:Destroy() end) end
     if engine then clean('engine',function() engine:Destroy() end) end
     clean('UI',function() library:Unload() end)
@@ -18361,9 +18559,12 @@ local ok,message=xpcall(function()
     app.Engine=engine
     melee=remote('src/MeleeAura.lua')().new(config.Melee,engine,library)
     app.MeleeAura=melee
+    silent=remote('src/SilentAim.lua')().new(config.Silent,engine,library,melee)
+    app.SilentAim=silent
     tools=remote('src/UniversalTools.lua')().new(config,engine,library)
     app.Tools=tools
     library.unloaded:Connect(function()
+        if silent then pcall(silent.Destroy,silent) end
         if tools then pcall(tools.Destroy,tools) end
         if melee then pcall(melee.Destroy,melee) end
         if engine then pcall(engine.Destroy,engine) end
@@ -18390,6 +18591,11 @@ local ok,message=xpcall(function()
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
             refreshTools(group)
+            if group=='Silent' then silent:Reset() end
+            if group=='Silent' and key=='Enabled' and value then
+                local unavailable=melee:CapabilityProblem()
+                if unavailable then silent:SetStatus(unavailable); library:SendNotification(unavailable,7) end
+            end
             if group=='Melee' then melee:Reset() end
             if group=='Melee' and key=='Enabled' and value then
                 local unavailable=melee:CapabilityProblem()
@@ -18404,6 +18610,7 @@ local ok,message=xpcall(function()
             increment=step or 1,suffix=suffix or '',callback=function(value)
                 config[group][key]=value
                 refreshTools(group)
+                if group=='Silent' then silent:Reset() end
                 if group=='Melee' then melee:Reset() end
                 if group=='Interface' and key=='Scale' then library.Obsidian:SetDPIScale(value) end
             end}),'slider')
@@ -18412,6 +18619,7 @@ local ok,message=xpcall(function()
         local option=section:AddList({text=label,flag=flag(group,key),selected=config[group][key],values=choices,callback=function(value)
             config[group][key]=value
             refreshTools(group)
+            if group=='Silent' then silent:Reset() end
             if group=='Melee' then melee:Reset() end
             if group=='Aim' then engine.held=false; engine.toggled=false; engine:ResetTarget() end
         end})
@@ -18551,7 +18759,27 @@ local ok,message=xpcall(function()
     slider(right,'Minimum target HP','Melee','MinHealth',1,100,1)
     right:AddText({text='Requires executor Raycast hook APIs'})
     right:AddText({text='Game weapon cooldowns still apply'})
-    tabs.Aimbot:AddSection('Silent Aim / Triggerbot',2):AddText({text='Not included yet: weapon-specific features need in-game validation.'})
+    local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
+    toggle(silentControls,'Enable silent aim','Silent','Enabled')
+    select(silentControls,'Silent target part','Silent','Part',{'Head','UpperTorso','HumanoidRootPart'})
+    select(silentControls,'Silent priority','Silent','Priority',{'Screen','Distance','Lowest health'})
+    slider(silentControls,'Hit chance per ray','Silent','HitChance',0,100,1,' %')
+    slider(silentControls,'Silent FOV','Silent','Radius',10,800,1,' px')
+    slider(silentControls,'Silent max distance','Silent','MaxDistance',50,5000,10,' studs')
+    toggle(silentControls,'Show silent FOV','Silent','ShowFOV')
+    color(silentControls,'Silent FOV color','Silent','FOVColor')
+    slider(silentControls,'Silent FOV opacity','Silent','FOVOpacity',0,1,0.01)
+    toggle(silentControls,'Silent wall check','Silent','WallCheck')
+    toggle(silentControls,'Silent skip downed','Silent','SkipDowned')
+    toggle(silentControls,'Silent skip teammates','Silent','TeamCheck')
+    toggle(silentControls,'Silent skip friends','Silent','SkipFriends')
+    toggle(silentControls,'Silent skip ForceField','Silent','SkipForceField')
+    toggle(silentControls,'Silent pause with menu','Silent','PauseMenu')
+    toggle(silentControls,'Silent prediction','Silent','Prediction')
+    slider(silentControls,'Silent prediction time','Silent','LeadTime',0,0.4,0.005,' s')
+    slider(silentControls,'Silent minimum HP','Silent','MinHealth',1,100,1)
+    silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
+    silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
     tabs.Character:AddSection('Character',1):AddText({text='Game-specific stamina, fall damage and ragdoll changes are not included.'})
     tabs.ESP:AddSection('Values / Misc ESP',2):AddText({text='Game-specific loot, dealers and infection ESP are not included.'})
@@ -18631,7 +18859,7 @@ local ok,message=xpcall(function()
     details=right:AddText({text='Display name: —\nUsername: —\nPriority: —'})
     right:AddList({text='Priority',flag='Players_Priority',values={'Neutral','Friend','Enemy'},selected='Neutral',callback=function(value) mode=value end})
     right:AddButton({text='Apply priority',callback=function()
-        if tools.Selected then engine.playerModes[tools.Selected.UserId]=mode; engine:ResetTarget(); melee:Reset(); updateDetails() end
+        if tools.Selected then engine.playerModes[tools.Selected.UserId]=mode; engine:ResetTarget(); melee:Reset(); silent:Reset(); updateDetails() end
     end})
     right:AddButton({text='Spectate selected',callback=function()
         if tools.Selected then tools:SetSpectating(true) else library:SendNotification('Select a player first',4) end
@@ -18727,7 +18955,7 @@ local ok,message=xpcall(function()
         library.StatusLabel:SetVisible(library.showStatus)
     end})
     right:AddButton({text='Unload',confirm=true,callback=function() app:Unload() end})
-    left,right=sections('UI Settings','Debugging','Melee diagnostics')
+    left,right=sections('UI Settings','Debugging','Combat diagnostics')
     local debugEnabled=toggle(left,'Enable diagnostic logs','Debug','Enabled')
     toggle(left,'Echo logs to console','Debug','Console')
     local traceRays=toggle(left,'Trace nearby melee rays','Debug','CaptureRays')
@@ -18741,7 +18969,7 @@ local ok,message=xpcall(function()
         library:SendNotification('Saved: '..path,5)
     end) end})
     local function clearDiagnostics()
-        logger:Clear(); melee.Counters={}; melee.lastSummary=0
+        logger:Clear(); melee.Counters={}; melee.lastSummary=0; silent.Counters={}; silent.lastSummary=0
     end
     left:AddButton({text='Clear debug log',callback=clearDiagnostics})
     right:AddButton({text='Start melee capture',callback=function()
@@ -18753,6 +18981,11 @@ local ok,message=xpcall(function()
         logger:Write('info','Melee','capture','Capture stopped',app:DebugContext())
         traceRays:SetState(false); debugEnabled:SetState(false)
     end})
+    right:AddButton({text='Start silent capture',callback=function()
+        clearDiagnostics(); debugEnabled:SetState(true); traceRays:SetState(true)
+        logger:Write('info','Silent','capture','Capture started',app:DebugContext())
+        library:SendNotification('Capture started. Enable Silent Aim, close menu, fire normally and save the report.',7)
+    end})
     right:AddText({text='Keeps up to 400 entries in memory. File export is manual.'})
     right:AddText({text='Client hits do not confirm server damage.'})
     engine:Connect(game:GetService('UserInputService').InputBegan,function(input,processed)
@@ -18760,6 +18993,7 @@ local ok,message=xpcall(function()
     end)
     engine:Start()
     melee:Start()
+    silent:Start()
     tools:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)

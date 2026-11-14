@@ -81,20 +81,20 @@ function Engine:TrackFriend(other)
 end
 function Engine:Allowed(other, settings)
     if other == self.player or other.Parent ~= Players then return false end
-    if self.playerModes[other.UserId]=='Friend' and (settings==self.config.Aim or settings==self.config.Melee) then return false end
+    if self.playerModes[other.UserId]=='Friend' and (settings==self.config.Aim or settings==self.config.Melee or settings==self.config.Silent) then return false end
     if settings.TeamCheck and sameTeam(self.player, other) then return false end
     if settings.SkipFriends and self.friends[other] then return false end
     return true
 end
 function Engine:TargetRank(other) return self.playerModes[other.UserId]=='Enemy' and 0 or 1 end
-function Engine:Visible(character, position, camera)
+function Engine:Visible(character, position, camera, ray)
     local delta = position - camera.CFrame.Position
     if delta.Magnitude < 0.01 then return true end
-    local hit = workspace:Raycast(camera.CFrame.Position, delta, self.ray)
+    local hit = workspace:Raycast(camera.CFrame.Position, delta, ray or self.ray)
     return not hit or hit.Instance:IsDescendantOf(character)
 end
-function Engine:Candidate(other, camera, localRoot)
-    local a = self.config.Aim
+function Engine:Candidate(other, camera, localRoot, settings, ray)
+    local a = settings or self.config.Aim
     if other==self.player then return nil,'self' end
     if a.TeamCheck and sameTeam(self.player,other) then return nil,'team' end
     if not self:Allowed(other, a) then return nil,'friend' end
@@ -116,7 +116,7 @@ function Engine:Candidate(other, camera, localRoot)
     if not onScreen then return nil,'offscreen' end
     local pixels = (screen - camera.ViewportSize/2).Magnitude
     if pixels > a.Radius then return nil,'FOV' end
-    if a.WallCheck and not self:Visible(character, part.Position, camera) then return nil,'wall' end
+    if a.WallCheck and not self:Visible(character, part.Position, camera, ray) then return nil,'wall' end
     local score = pixels
     if a.Priority == 'Distance' then score = distance end
     if a.Priority == 'Lowest health' then score = humanoid.Health end

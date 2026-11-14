@@ -124,6 +124,10 @@ local config={
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=false,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
+    Silent={Enabled=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
+        SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
+        HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
+        Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
         TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
@@ -135,7 +139,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,tools,logger
+local engine,melee,silent,tools,logger
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -145,6 +149,11 @@ function app:DebugContext()
         Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,SkipDowned=config.Melee.SkipDowned,
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
+    data.SilentStatus=silent and silent.Status or 'not started'
+    data.SilentEnabled=config.Silent.Enabled
+    data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
+    data.SilentHitChance=config.Silent.HitChance; data.SilentMaxDistance=config.Silent.MaxDistance
+    if silent then for key,value in pairs(silent.Counters) do data['Silent.'..key]=value end end
     return data
 end
 function app:Unload()
@@ -157,6 +166,7 @@ function app:Unload()
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
     if tools then clean('universal tools',function() tools:Destroy() end) end
+    if silent then clean('silent aim',function() silent:Destroy() end) end
     if melee then clean('melee',function() melee:Destroy() end) end
     if engine then clean('engine',function() engine:Destroy() end) end
     clean('UI',function() library:Unload() end)
@@ -173,9 +183,12 @@ local ok,message=xpcall(function()
     app.Engine=engine
     melee=remote('src/MeleeAura.lua')().new(config.Melee,engine,library)
     app.MeleeAura=melee
+    silent=remote('src/SilentAim.lua')().new(config.Silent,engine,library,melee)
+    app.SilentAim=silent
     tools=remote('src/UniversalTools.lua')().new(config,engine,library)
     app.Tools=tools
     library.unloaded:Connect(function()
+        if silent then pcall(silent.Destroy,silent) end
         if tools then pcall(tools.Destroy,tools) end
         if melee then pcall(melee.Destroy,melee) end
         if engine then pcall(engine.Destroy,engine) end
@@ -202,6 +215,11 @@ local ok,message=xpcall(function()
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
             refreshTools(group)
+            if group=='Silent' then silent:Reset() end
+            if group=='Silent' and key=='Enabled' and value then
+                local unavailable=melee:CapabilityProblem()
+                if unavailable then silent:SetStatus(unavailable); library:SendNotification(unavailable,7) end
+            end
             if group=='Melee' then melee:Reset() end
             if group=='Melee' and key=='Enabled' and value then
                 local unavailable=melee:CapabilityProblem()
@@ -216,6 +234,7 @@ local ok,message=xpcall(function()
             increment=step or 1,suffix=suffix or '',callback=function(value)
                 config[group][key]=value
                 refreshTools(group)
+                if group=='Silent' then silent:Reset() end
                 if group=='Melee' then melee:Reset() end
                 if group=='Interface' and key=='Scale' then library.Obsidian:SetDPIScale(value) end
             end}),'slider')
@@ -224,6 +243,7 @@ local ok,message=xpcall(function()
         local option=section:AddList({text=label,flag=flag(group,key),selected=config[group][key],values=choices,callback=function(value)
             config[group][key]=value
             refreshTools(group)
+            if group=='Silent' then silent:Reset() end
             if group=='Melee' then melee:Reset() end
             if group=='Aim' then engine.held=false; engine.toggled=false; engine:ResetTarget() end
         end})
@@ -363,7 +383,27 @@ local ok,message=xpcall(function()
     slider(right,'Minimum target HP','Melee','MinHealth',1,100,1)
     right:AddText({text='Requires executor Raycast hook APIs'})
     right:AddText({text='Game weapon cooldowns still apply'})
-    tabs.Aimbot:AddSection('Silent Aim / Triggerbot',2):AddText({text='Not included yet: weapon-specific features need in-game validation.'})
+    local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
+    toggle(silentControls,'Enable silent aim','Silent','Enabled')
+    select(silentControls,'Silent target part','Silent','Part',{'Head','UpperTorso','HumanoidRootPart'})
+    select(silentControls,'Silent priority','Silent','Priority',{'Screen','Distance','Lowest health'})
+    slider(silentControls,'Hit chance per ray','Silent','HitChance',0,100,1,' %')
+    slider(silentControls,'Silent FOV','Silent','Radius',10,800,1,' px')
+    slider(silentControls,'Silent max distance','Silent','MaxDistance',50,5000,10,' studs')
+    toggle(silentControls,'Show silent FOV','Silent','ShowFOV')
+    color(silentControls,'Silent FOV color','Silent','FOVColor')
+    slider(silentControls,'Silent FOV opacity','Silent','FOVOpacity',0,1,0.01)
+    toggle(silentControls,'Silent wall check','Silent','WallCheck')
+    toggle(silentControls,'Silent skip downed','Silent','SkipDowned')
+    toggle(silentControls,'Silent skip teammates','Silent','TeamCheck')
+    toggle(silentControls,'Silent skip friends','Silent','SkipFriends')
+    toggle(silentControls,'Silent skip ForceField','Silent','SkipForceField')
+    toggle(silentControls,'Silent pause with menu','Silent','PauseMenu')
+    toggle(silentControls,'Silent prediction','Silent','Prediction')
+    slider(silentControls,'Silent prediction time','Silent','LeadTime',0,0.4,0.005,' s')
+    slider(silentControls,'Silent minimum HP','Silent','MinHealth',1,100,1)
+    silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
+    silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
     tabs.Character:AddSection('Character',1):AddText({text='Game-specific stamina, fall damage and ragdoll changes are not included.'})
     tabs.ESP:AddSection('Values / Misc ESP',2):AddText({text='Game-specific loot, dealers and infection ESP are not included.'})
@@ -443,7 +483,7 @@ local ok,message=xpcall(function()
     details=right:AddText({text='Display name: —\nUsername: —\nPriority: —'})
     right:AddList({text='Priority',flag='Players_Priority',values={'Neutral','Friend','Enemy'},selected='Neutral',callback=function(value) mode=value end})
     right:AddButton({text='Apply priority',callback=function()
-        if tools.Selected then engine.playerModes[tools.Selected.UserId]=mode; engine:ResetTarget(); melee:Reset(); updateDetails() end
+        if tools.Selected then engine.playerModes[tools.Selected.UserId]=mode; engine:ResetTarget(); melee:Reset(); silent:Reset(); updateDetails() end
     end})
     right:AddButton({text='Spectate selected',callback=function()
         if tools.Selected then tools:SetSpectating(true) else library:SendNotification('Select a player first',4) end
@@ -539,7 +579,7 @@ local ok,message=xpcall(function()
         library.StatusLabel:SetVisible(library.showStatus)
     end})
     right:AddButton({text='Unload',confirm=true,callback=function() app:Unload() end})
-    left,right=sections('UI Settings','Debugging','Melee diagnostics')
+    left,right=sections('UI Settings','Debugging','Combat diagnostics')
     local debugEnabled=toggle(left,'Enable diagnostic logs','Debug','Enabled')
     toggle(left,'Echo logs to console','Debug','Console')
     local traceRays=toggle(left,'Trace nearby melee rays','Debug','CaptureRays')
@@ -553,7 +593,7 @@ local ok,message=xpcall(function()
         library:SendNotification('Saved: '..path,5)
     end) end})
     local function clearDiagnostics()
-        logger:Clear(); melee.Counters={}; melee.lastSummary=0
+        logger:Clear(); melee.Counters={}; melee.lastSummary=0; silent.Counters={}; silent.lastSummary=0
     end
     left:AddButton({text='Clear debug log',callback=clearDiagnostics})
     right:AddButton({text='Start melee capture',callback=function()
@@ -565,6 +605,11 @@ local ok,message=xpcall(function()
         logger:Write('info','Melee','capture','Capture stopped',app:DebugContext())
         traceRays:SetState(false); debugEnabled:SetState(false)
     end})
+    right:AddButton({text='Start silent capture',callback=function()
+        clearDiagnostics(); debugEnabled:SetState(true); traceRays:SetState(true)
+        logger:Write('info','Silent','capture','Capture started',app:DebugContext())
+        library:SendNotification('Capture started. Enable Silent Aim, close menu, fire normally and save the report.',7)
+    end})
     right:AddText({text='Keeps up to 400 entries in memory. File export is manual.'})
     right:AddText({text='Client hits do not confirm server damage.'})
     engine:Connect(game:GetService('UserInputService').InputBegan,function(input,processed)
@@ -572,6 +617,7 @@ local ok,message=xpcall(function()
     end)
     engine:Start()
     melee:Start()
+    silent:Start()
     tools:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)

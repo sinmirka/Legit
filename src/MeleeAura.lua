@@ -152,7 +152,7 @@ function MeleeAura:InstallHook()
     local env=getgenv()
     local state=env.LegitMeleeRaycastHook
     -- Upgrade the old dispatcher once; leave its owner empty so it stays transparent.
-    if state and state.Version~=3 then state.Owner=nil; state=nil end
+    if state and state.Version~=4 then state.Owner=nil; state.SilentOwner=nil; state=nil end
     if not state then
         local unavailable=self:CapabilityProblem()
         if unavailable then
@@ -160,7 +160,7 @@ function MeleeAura:InstallHook()
             self:Log('error','capabilities',self.Status,nil,5)
             return false
         end
-        state={Version=3}
+        state={Version=4}
         local previous
         local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
         local ok,result=pcall(function()
@@ -169,21 +169,28 @@ function MeleeAura:InstallHook()
                 -- dispatcher: it can replace the executor's active namecall method.
                 local method=getnamecallmethod()
                 local owner=state.Owner
-                if method=='Raycast' and owner and owner.alive and owner.config.Enabled
-                    and receiver==workspace and not checkcaller() then
+                local silent=state.SilentOwner
+                local meleeActive=owner and owner.alive and owner.config.Enabled
+                local silentActive=silent and silent.alive and silent.config.Enabled
+                if method=='Raycast' and (meleeActive or silentActive) and receiver==workspace and not checkcaller() then
                     local args=table.pack(...)
-                    local succeeded,direction=pcall(function()
-                        owner:Count('ray.seen')
-                        return owner:Redirect(getcallingscript(),args[1],args[2])
-                    end)
-                    if not succeeded then
-                        owner:Count('hook.error')
-                        owner:Log('error','hook',tostring(direction),nil,1)
+                    local function redirect(feature)
+                        local succeeded,direction=pcall(function()
+                            feature:Count('ray.seen')
+                            return feature:Redirect(getcallingscript(),args[1],args[2],args[3])
+                        end)
+                        if not succeeded then
+                            feature:Count('hook.error')
+                            feature:Log('error','hook',tostring(direction),nil,1)
+                        elseif direction then return direction end
                     end
-                    if succeeded and direction then
+                    local direction=meleeActive and redirect(owner)
+                    local chosen=direction and owner
+                    if not direction and silentActive then direction=redirect(silent); chosen=direction and silent end
+                    if direction then
                         args[2]=direction
                         local results=table.pack(previous(receiver,table.unpack(args,1,args.n)))
-                        pcall(owner.ObserveHit,owner,results[1])
+                        pcall(chosen.ObserveHit,chosen,results[1])
                         return table.unpack(results,1,results.n)
                     end
                 end
