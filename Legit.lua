@@ -2426,7 +2426,6 @@ return Silent
 ]====]
 files["src/UniversalTools.lua"]=[====[local Players=game:GetService('Players')
 local RunService=game:GetService('RunService')
-local Input=game:GetService('UserInputService')
 local Lighting=game:GetService('Lighting')
 local Tools={}
 Tools.__index=Tools
@@ -2545,8 +2544,7 @@ function Tools:Effect(name,class,enabled)
 end
 function Tools:SpeedStep(character,hum)
     local c=self.config.Character
-    if not c.WalkSpeed then self.SpeedStatus='Disabled'; return end
-    if c.SpeedMethod=='WalkSpeed' then self.SpeedStatus='Humanoid WalkSpeed'; return end
+    if not c.VelocitySpeed then self.SpeedStatus='Disabled'; return end
     local root=character and character:FindFirstChild('HumanoidRootPart')
     if not hum or hum.Health<=0 or not root then self.SpeedStatus='Waiting for character'; return end
     if root.Anchored or hum.Sit or hum.PlatformStand or hum.SeatPart then self.SpeedStatus='Paused: anchored / seated / ragdoll'; return end
@@ -2570,17 +2568,6 @@ function Tools:Step()
     local character=Players.LocalPlayer.Character
     local hum=humanoid(Players.LocalPlayer)
     self:StaminaStep(character,hum)
-    if hum and hum.Health>0 then
-        if c.WalkSpeed and c.SpeedMethod=='WalkSpeed' then set(hum,'WalkSpeed',c.Speed) end
-        if c.JumpOverride then
-            set(hum,hum.UseJumpPower and 'JumpPower' or 'JumpHeight',hum.UseJumpPower and c.JumpPower or c.JumpHeight)
-        end
-        if c.Noclip and character then
-            for _,part in ipairs(character:GetDescendants()) do
-                if part:IsA('BasePart') then set(part,'CanCollide',false) end
-            end
-        end
-    end
     if w.TimeEnabled then set(Lighting,'ClockTime',w.Time) end
     if w.ExposureEnabled then set(Lighting,'ExposureCompensation',w.Exposure) end
     if w.AmbientEnabled then set(Lighting,'Ambient',w.Ambient); set(Lighting,'OutdoorAmbient',w.Ambient) end
@@ -2649,14 +2636,6 @@ function Tools:Start()
     local ok,prompts=pcall(game.GetService,game,'ProximityPromptService')
     if ok and prompts.PromptShown then connect(prompts.PromptShown,function(prompt) self:TrackPrompt(prompt); self:Step() end) end
     connect(RunService.Heartbeat,function() self:Step() end)
-    connect(Input.JumpRequest,function()
-        local hum=humanoid(Players.LocalPlayer)
-        if self.alive and self.config.Character.InfiniteJump and self.engine.focused
-            and not Input:GetFocusedTextBox() and not self.library:IsInteracting()
-            and not self.library:IsPointerOverUI() and hum and hum.Health>0 then
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
-    end)
     connect(Players.PlayerRemoving,function(player)
         if self.Selected==player then self.Selected=nil; self:SetSpectating(false) end
         self.engine.playerModes[player.UserId]=nil
@@ -2996,7 +2975,7 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
-    Character={WalkSpeed=false,Speed=16,SpeedMethod='Velocity',JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false,InfiniteStamina=false},
+    Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false},
     Interaction={Instant=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
@@ -3062,7 +3041,7 @@ function app:DebugContext()
     data.StaminaTables=tools and #tools.staminaTables or 0
     data.InstantInteraction=config.Interaction.Instant
     data.ObjectESPStatus=objects and objects.Status or 'not started'
-    data.SpeedMethod=config.Character.SpeedMethod
+    data.SpeedMethod='Velocity'
     data.SpeedStatus=tools and tools.SpeedStatus or 'not started'
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
@@ -3352,18 +3331,11 @@ local ok,message=xpcall(function()
     slider(loot,'Object fill transparency','ObjectESP','FillTransparency',0,1,0.05)
     loot:AddButton({text='Refresh object ESP',callback=function() objects:Rescan(); library:SendNotification(objects.Status,5) end})
     loot:AddText({text='Independent of player ESP. Crate names/types/colours are used; verify current game layout.'})
-    left,right=sections('Character','Character / Universal','Speed options')
-    toggle(left,'Noclip','Character','Noclip')
-    toggle(left,'Infinite jump','Character','InfiniteJump')
-    toggle(left,'Override jump','Character','JumpOverride')
-    slider(left,'Jump power','Character','JumpPower',0,150,1)
-    slider(left,'Jump height','Character','JumpHeight',0,30,0.1,' studs')
-    toggle(right,'Walk speed','Character','WalkSpeed')
-    select(right,'Speed method','Character','SpeedMethod',{'Velocity','WalkSpeed'})
+    left,right=sections('Character','Criminality movement','Speed options')
+    left:AddText({text='Movement uses the horizontal velocity method from the Criminality reference. Server correction may still apply.'})
+    toggle(right,'Velocity speed','Character','VelocitySpeed')
     slider(right,'Speed value','Character','Speed',0,150,1)
-    right:AddText({text='Velocity changes horizontal root movement and preserves vertical physics. Server correction may still apply.'})
-    right:AddText({text='Jump power or height follows the game jump mode.'})
-    right:AddText({text='Server movement limits can still apply.'})
+    right:AddText({text='Preserves vertical physics. Pauses while seated, anchored or ragdolled.'})
     left,right=sections('World','World','World effects')
     toggle(left,'Time changer','World','TimeEnabled')
     slider(left,'Select hours','World','Time',0,24,0.1)

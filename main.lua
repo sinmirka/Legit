@@ -92,7 +92,7 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
-    Character={WalkSpeed=false,Speed=16,SpeedMethod='Velocity',JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false,InfiniteStamina=false},
+    Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false},
     Interaction={Instant=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
@@ -158,7 +158,7 @@ function app:DebugContext()
     data.StaminaTables=tools and #tools.staminaTables or 0
     data.InstantInteraction=config.Interaction.Instant
     data.ObjectESPStatus=objects and objects.Status or 'not started'
-    data.SpeedMethod=config.Character.SpeedMethod
+    data.SpeedMethod='Velocity'
     data.SpeedStatus=tools and tools.SpeedStatus or 'not started'
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
@@ -448,18 +448,11 @@ local ok,message=xpcall(function()
     slider(loot,'Object fill transparency','ObjectESP','FillTransparency',0,1,0.05)
     loot:AddButton({text='Refresh object ESP',callback=function() objects:Rescan(); library:SendNotification(objects.Status,5) end})
     loot:AddText({text='Independent of player ESP. Crate names/types/colours are used; verify current game layout.'})
-    left,right=sections('Character','Character / Universal','Speed options')
-    toggle(left,'Noclip','Character','Noclip')
-    toggle(left,'Infinite jump','Character','InfiniteJump')
-    toggle(left,'Override jump','Character','JumpOverride')
-    slider(left,'Jump power','Character','JumpPower',0,150,1)
-    slider(left,'Jump height','Character','JumpHeight',0,30,0.1,' studs')
-    toggle(right,'Walk speed','Character','WalkSpeed')
-    select(right,'Speed method','Character','SpeedMethod',{'Velocity','WalkSpeed'})
+    left,right=sections('Character','Criminality movement','Speed options')
+    left:AddText({text='Movement uses the horizontal velocity method from the Criminality reference. Server correction may still apply.'})
+    toggle(right,'Velocity speed','Character','VelocitySpeed')
     slider(right,'Speed value','Character','Speed',0,150,1)
-    right:AddText({text='Velocity changes horizontal root movement and preserves vertical physics. Server correction may still apply.'})
-    right:AddText({text='Jump power or height follows the game jump mode.'})
-    right:AddText({text='Server movement limits can still apply.'})
+    right:AddText({text='Preserves vertical physics. Pauses while seated, anchored or ragdolled.'})
     left,right=sections('World','World','World effects')
     toggle(left,'Time changer','World','TimeEnabled')
     slider(left,'Select hours','World','Time',0,24,0.1)

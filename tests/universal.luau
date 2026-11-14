@@ -53,32 +53,18 @@ option('Interaction_Instant'):SetState(true)
 button('Save profile').callback(); option('Interaction_Instant'):SetState(false); button('Load profile').callback()
 assert(app.Config.Interaction.Instant and prompt.HoldDuration==0,'interaction profile roundtrip')
 option('Interaction_Instant'):SetState(false)
-option('Character_SpeedMethod'):Select('WalkSpeed')
-option('Character_Speed'):SetValue(40); option('Character_WalkSpeed'):SetState(true)
-assert(localHum.WalkSpeed==40,'speed UI applies immediately')
-localHum.WalkSpeed=22; tools:Step(); assert(localHum.WalkSpeed==40,'speed stays enforced')
-option('Character_WalkSpeed'):SetState(false); assert(localHum.WalkSpeed==22,'restore latest game baseline')
-option('Character_JumpOverride'):SetState(true); option('Character_JumpPower'):SetValue(80)
-assert(localHum.JumpPower==80,'jump power')
-localHum.UseJumpPower=false; option('Character_JumpHeight'):SetValue(12)
-assert(localHum.JumpPower==50 and localHum.JumpHeight==12,'respect game jump mode and restore old property')
-option('Character_JumpOverride'):SetState(false); assert(localHum.JumpHeight==7.2,'restore jump height')
-option('Character_Noclip'):SetState(true)
-assert(not localRoot.CanCollide and not localHead.CanCollide,'noclip')
-option('Character_Noclip'):SetState(false)
-assert(localRoot.CanCollide and not localHead.CanCollide,'restore per-part original collisions')
-c.WalkSpeed=true; c.Speed=35; tools:Step()
+for _,removed in ipairs({'Noclip','InfiniteJump','JumpOverride','JumpPower','JumpHeight','WalkSpeed','SpeedMethod'}) do
+    assert(not app.Library.options['Character_'..removed],'removed movement control: '..removed)
+end
+-- Old runtime/profile fields cannot revive removed property writes or jump handlers.
+c.Noclip=true; c.JumpOverride=true; c.InfiniteJump=true; c.WalkSpeed=true; c.SpeedMethod='WalkSpeed'; c.JumpPower=80
+localHum.LastState=nil; tools:Step(); MOCK.services.UserInputService.JumpRequest:Fire()
+assert(localHum.WalkSpeed==16 and localHum.JumpPower==50 and localRoot.CanCollide and not localHum.LastState,'legacy fields cannot run removed methods')
+c.Noclip=nil; c.JumpOverride=nil; c.InfiniteJump=nil; c.WalkSpeed=nil; c.SpeedMethod=nil; c.JumpPower=nil
+c.Speed=35
 local newFixture,newHum=makePlayer(1,'Respawn')
 players.LocalPlayer.Character=newFixture.Character; tools:Step()
-assert(localHum.WalkSpeed==22 and newHum.WalkSpeed==35,'respawn restores old rig and applies to new rig')
-option('Character_WalkSpeed'):SetState(false)
 app.Library:SetOpen(false)
-option('Character_InfiniteJump'):SetState(true)
-MOCK.services.UserInputService.JumpRequest:Fire()
-assert(newHum.LastState==Enum.HumanoidStateType.Jumping,'infinite jump signal')
-newHum.LastState=nil; app.Engine.focused=false
-MOCK.services.UserInputService.JumpRequest:Fire(); assert(not newHum.LastState,'infinite jump focus guard')
-app.Engine.focused=true
 local beforeAmbient=lighting.Ambient
 option('World_Time'):SetValue(3); option('World_TimeEnabled'):SetState(true)
 option('World_RemoveShadows'):SetState(true)
@@ -135,11 +121,11 @@ button('Stop spectating').callback(); assert(camera.CameraSubject==newHum,'resto
 button('Spectate selected').callback()
 players.PlayerRemoving:Fire(other)
 assert(not tools.Selected and not tools.Spectating and camera.CameraSubject==newHum,'leaving target restores camera')
-option('World_TimeEnabled'):SetState(true); option('Character_WalkSpeed'):SetState(true)
+option('World_TimeEnabled'):SetState(true); option('Character_VelocitySpeed'):SetState(true)
 button('Save profile').callback()
 option('World_Time'):SetValue(8); option('Character_Speed'):SetValue(70)
 button('Load profile').callback()
-assert(lighting.ClockTime==3 and newHum.WalkSpeed==35,'universal profile roundtrip')
+assert(lighting.ClockTime==3 and c.Speed==35 and c.VelocitySpeed and newHum.WalkSpeed==16,'velocity profile roundtrip without humanoid writes')
 -- External launchers are lazy and tested with inert responses, never downloaded/executed here.
 local clipboard
 setclipboard=function(text) clipboard=text end
@@ -172,19 +158,18 @@ game.HttpGet=http
 -- Criminality-style horizontal root velocity, with original Y physics intact.
 local movementRoot=newFixture.Character.Children.HumanoidRootPart
 newHum.MoveDirection=MOCK.vec(0.6,0,0.8); movementRoot.AssemblyLinearVelocity=MOCK.vec(1,12,2)
-option('Character_SpeedMethod'):Select('Velocity'); option('Character_Speed'):SetValue(40)
-option('Character_WalkSpeed'):SetState(true)
+option('Character_Speed'):SetValue(40)
+option('Character_VelocitySpeed'):SetState(true)
 assert(movementRoot.AssemblyLinearVelocity.X==24 and movementRoot.AssemblyLinearVelocity.Z==32 and movementRoot.AssemblyLinearVelocity.Y==12,'velocity method preserves Y and applies horizontal speed')
-assert(newHum.WalkSpeed==16,'switching methods restores humanoid property')
+assert(newHum.WalkSpeed==16,'velocity leaves humanoid speed unchanged')
 newHum.MoveDirection=MOCK.vec(0,0,0); local idleVelocity=movementRoot.AssemblyLinearVelocity; tools:Step()
 assert(movementRoot.AssemblyLinearVelocity==idleVelocity,'idle movement does not inject velocity')
 newHum.MoveDirection=MOCK.vec(1,0,0); movementRoot.Anchored=true; tools:Step()
 assert(movementRoot.AssemblyLinearVelocity==idleVelocity,'anchored root ignored'); movementRoot.Anchored=false
 newHum.Sit=true; tools:Step(); assert(movementRoot.AssemblyLinearVelocity==idleVelocity,'seated root ignored'); newHum.Sit=false
 newHum.PlatformStand=true; tools:Step(); assert(movementRoot.AssemblyLinearVelocity==idleVelocity,'ragdoll ignored'); newHum.PlatformStand=false
-option('Character_WalkSpeed'):SetState(false); movementRoot.AssemblyLinearVelocity=MOCK.vec(7,-9,4); tools:Step()
+option('Character_VelocitySpeed'):SetState(false); movementRoot.AssemblyLinearVelocity=MOCK.vec(7,-9,4); tools:Step()
 assert(movementRoot.AssemblyLinearVelocity.X==7 and movementRoot.AssemblyLinearVelocity.Y==-9,'disable stops velocity writes')
-option('Character_SpeedMethod'):Select('WalkSpeed')
 -- Stamina discovery is bounded and never runs GC every frame.
 assert(not c.InfiniteStamina,'stamina disabled by default')
 option('Character_InfiniteStamina'):SetState(true)
@@ -225,4 +210,4 @@ assert(newHum.WalkSpeed==16 and lighting.ClockTime==14 and colorEffect.Destroyed
 assert(next(tools.prompts)==nil,'prompt cache released')
 assert(not connection.Connected and next(tools.applied)==nil and next(tools.effects)==nil and #tools.staminaTables==0,'owned resources released')
 stamina.S=12; tools:Step(); assert(stamina.S==12,'unloaded instance never refills')
-print('PASS universal tools: property ownership, respawn, jump, lighting, effects, player priorities, spectate, profiles and lazy script launchers')
+print('PASS universal tools: property ownership, removed movement methods, velocity, lighting, effects, player priorities, spectate, profiles and lazy script launchers')

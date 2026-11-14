@@ -1,6 +1,5 @@
 local Players=game:GetService('Players')
 local RunService=game:GetService('RunService')
-local Input=game:GetService('UserInputService')
 local Lighting=game:GetService('Lighting')
 local Tools={}
 Tools.__index=Tools
@@ -119,8 +118,7 @@ function Tools:Effect(name,class,enabled)
 end
 function Tools:SpeedStep(character,hum)
     local c=self.config.Character
-    if not c.WalkSpeed then self.SpeedStatus='Disabled'; return end
-    if c.SpeedMethod=='WalkSpeed' then self.SpeedStatus='Humanoid WalkSpeed'; return end
+    if not c.VelocitySpeed then self.SpeedStatus='Disabled'; return end
     local root=character and character:FindFirstChild('HumanoidRootPart')
     if not hum or hum.Health<=0 or not root then self.SpeedStatus='Waiting for character'; return end
     if root.Anchored or hum.Sit or hum.PlatformStand or hum.SeatPart then self.SpeedStatus='Paused: anchored / seated / ragdoll'; return end
@@ -144,17 +142,6 @@ function Tools:Step()
     local character=Players.LocalPlayer.Character
     local hum=humanoid(Players.LocalPlayer)
     self:StaminaStep(character,hum)
-    if hum and hum.Health>0 then
-        if c.WalkSpeed and c.SpeedMethod=='WalkSpeed' then set(hum,'WalkSpeed',c.Speed) end
-        if c.JumpOverride then
-            set(hum,hum.UseJumpPower and 'JumpPower' or 'JumpHeight',hum.UseJumpPower and c.JumpPower or c.JumpHeight)
-        end
-        if c.Noclip and character then
-            for _,part in ipairs(character:GetDescendants()) do
-                if part:IsA('BasePart') then set(part,'CanCollide',false) end
-            end
-        end
-    end
     if w.TimeEnabled then set(Lighting,'ClockTime',w.Time) end
     if w.ExposureEnabled then set(Lighting,'ExposureCompensation',w.Exposure) end
     if w.AmbientEnabled then set(Lighting,'Ambient',w.Ambient); set(Lighting,'OutdoorAmbient',w.Ambient) end
@@ -223,14 +210,6 @@ function Tools:Start()
     local ok,prompts=pcall(game.GetService,game,'ProximityPromptService')
     if ok and prompts.PromptShown then connect(prompts.PromptShown,function(prompt) self:TrackPrompt(prompt); self:Step() end) end
     connect(RunService.Heartbeat,function() self:Step() end)
-    connect(Input.JumpRequest,function()
-        local hum=humanoid(Players.LocalPlayer)
-        if self.alive and self.config.Character.InfiniteJump and self.engine.focused
-            and not Input:GetFocusedTextBox() and not self.library:IsInteracting()
-            and not self.library:IsPointerOverUI() and hum and hum.Health>0 then
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
-    end)
     connect(Players.PlayerRemoving,function(player)
         if self.Selected==player then self.Selected=nil; self:SetSpectating(false) end
         self.engine.playerModes[player.UserId]=nil
