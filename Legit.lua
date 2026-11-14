@@ -17956,7 +17956,7 @@ function MeleeAura:Destroy()
 end
 return MeleeAura
 ]====]
-files["src/SilentAim.lua"]=[====[-- Steer the initial FastCast trajectory, then observe its real simulation signals.
+files["src/SilentAim.lua"]=[====[-- Update Gun's shared client/server direction list, then observe real FastCast signals.
 local Players=game:GetService('Players')
 local RunService=game:GetService('RunService')
 local Input=game:GetService('UserInputService')
@@ -17997,7 +17997,7 @@ end
 function Silent:Reset()
     self.prepared,self.gunContext=nil,nil; self.circle.Visible=false
     self.traceQueue={}; self.shots={}
-    self.projectiles={}
+    self.projectiles={}; self.launches={}
     for _,entry in ipairs(self.casters) do
         for _,connection in ipairs(entry.Connections) do connection:Disconnect() end
     end
@@ -18009,7 +18009,15 @@ function Silent:Reset()
 end
 function Silent:Equip(tool)
     if self.tool==tool then return end
-    self.tool=tool; self:Reset()
+    self.tool=tool; self:Reset(); self.ballistics=nil
+    local config=tool and tool:FindFirstChild('Config')
+    if config then
+        local ok,value=pcall(require,config)
+        if ok and type(value)=='table' and type(value.BulletSettings)=='table' then
+            local b=value.BulletSettings
+            if type(b.Velocity)=='number' and b.Velocity>0 then self.ballistics={Velocity=b.Velocity,Acceleration=b.Acceleration} end
+        end
+    end
 end
 function Silent:FastCastModule()
     local modules=Storage:FindFirstChild('NewModules')
@@ -18022,6 +18030,70 @@ function Silent:CapabilityProblem()
     for _,name in ipairs({'hookfunction','getcallingscript','checkcaller'}) do
         if type(getfenv()[name])~='function' then return 'Unavailable: missing '..name end
     end
+end
+function Silent:InstallEffectsHook()
+    if self.effectsHook then return true end
+    local modules=Storage:FindFirstChild('NewModules')
+    local client=modules and modules:FindFirstChild('Client')
+    local services=client and client:FindFirstChild('Services')
+    local module=services and services:FindFirstChild('Effects')
+    if not module then return false,'Unavailable: gun Effects module not found' end
+    local ok,api=pcall(require,module)
+    if not ok or type(api)~='function' then return false,'Unavailable: unsupported Effects dispatcher' end
+    local env=getgenv()
+    env.LegitSilentEffectsHooks=env.LegitSilentEffectsHooks or {}
+    local state=env.LegitSilentEffectsHooks[module]
+    if not state then
+        state={}; env.LegitSilentEffectsHooks[module]=state
+        local original
+        local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
+        local installed,problem=pcall(function()
+            original=hookfunction(api,wrap(function(...)
+                local owner=state.Owner
+                if owner and owner.alive and owner.config.Enabled and not checkcaller() then
+                    local args=table.pack(...)
+                    local success,err=pcall(owner.Shoot,owner,getcallingscript(),args)
+                    if not success then owner:Log('error','shoot',tostring(err),nil,1) end
+                end
+                return original(...)
+            end))
+            assert(type(original)=='function','missing original Effects function')
+        end)
+        if not installed then env.LegitSilentEffectsHooks[module]=nil; return false,'Unavailable: Effects hook failed: '..tostring(problem) end
+    end
+    state.Owner=self; self.effectsHook=state
+    self:Log('info','shoot.install','Shared gun direction list hook attached')
+    return true
+end
+function Silent:Shoot(caller,args)
+    local p=self.gunContext
+    if args[1]~='Shoot' then return end
+    self:Count('shoot.seen')
+    if args[4]~=true or not p or args[5]~=p.Tool or not inside(caller,p.Tool) then
+        self:Count('shoot.skip.local gun scope'); return
+    end
+    local list=args[7]
+    if type(list)~='table' or #list<1 or #list>128 or table.isfrozen(list) then return end
+    local originals,changed,reasons,replacements={},{},{},{}
+    for i,direction in ipairs(list) do
+        if not finite(direction) or direction.Magnitude<0.001 then return end
+        originals[i]=direction
+        local fake={nil,args[3],args[6],direction,self.ballistics and self.ballistics.Velocity or 1}
+        fake[9]=self.ballistics and self.ballistics.Acceleration
+        local sent,_,reason=self:AimLaunch(caller,'Fire',fake)
+        replacements[i]=sent or direction; changed[i]=sent~=nil; reasons[i]=reason or 'redirected'
+    end
+    -- Preserve the list identity: Gun sends this same table after Effects returns.
+    for i,direction in ipairs(replacements) do list[i]=direction end
+    self.launches=self.launches or {}
+    local now=os.clock()
+    for id,launch in pairs(self.launches) do if now-launch.Time>2 then self.launches[id]=nil end end
+    local count=0; for _ in pairs(self.launches) do count+=1 end
+    if count>=16 then self.launches={} end
+    if type(args[3])=='string' or type(args[3])=='number' then
+        self.launches[args[3]]={Time=now,Tool=p.Tool,Originals=originals,Sent=replacements,Changed=changed,Reasons=reasons}
+    end
+    self:Count('shoot.prepared')
 end
 function Silent:InstallProjectileHook()
     if self.projectileHook then return true end
@@ -18067,7 +18139,7 @@ function Silent:InstallProjectileHook()
         end
     end
     state.Owner=self; self.projectileHook=state
-    self:Log('info','projectile.install','Initial FastCast direction and velocity hook attached')
+    self:Log('info','projectile.install','FastCast observation hooks attached; launch steering is upstream')
     return true
 end
 function Silent:Step(now)
@@ -18096,11 +18168,12 @@ function Silent:Step(now)
         return
     end
     self:Equip(tool)
-    if not self.projectileHook then
+    if not self.projectileHook or not self.effectsHook then
         if self.installing then self:SetStatus('Loading FastCast adapter'); return end
         if now<(self.nextInstall or 0) then return end
         self.nextInstall=now+2; self.installing=true
-        local installed,reason=self:InstallProjectileHook()
+        local installed,reason=self:InstallEffectsHook()
+        if installed then installed,reason=self:InstallProjectileHook() end
         self.installing=false
         if not installed then self:Reset(); self:SetStatus(reason); return end
     end
@@ -18137,9 +18210,8 @@ function Silent:Step(now)
         self:Log('info','filters','Rejected target evaluations',rejected)
     end
 end
-function Silent:Projectile(caller,method,args)
-    self:Count('projectile.seen')
-    local function reject(reason) self:Count('projectile.skip.'..reason); return nil end
+function Silent:AimLaunch(caller,method,args)
+    local function reject(reason) self:Count('shoot.skip.'..reason); return nil,nil,reason end
     local s,p=self.config,self.gunContext
     if not self.alive or not s.Enabled or not self.engine.focused or (s.PauseMenu and self.library.open) then return reject('paused') end
     if not p then return reject('no gun context') end
@@ -18150,31 +18222,8 @@ function Silent:Projectile(caller,method,args)
     if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 or self.tool~=p.Tool
         or p.Tool.Parent~=p.Character or not p.Tool.Enabled then return reject('tool/rig') end
     if (origin-p.Root.Position).Magnitude>s.OriginRadius then return reject('distant origin') end
-    if not inside(caller,p.Tool) then
-        -- Public FastCast functions also simulate other players. Only an explicit
-        -- exclusion of our rig/tool authorizes a call from a shared controller.
-        local localFilter=false
-        if method=='Fire' then
-            localFilter=args[7]==p.Character or args[7]==p.Tool
-        elseif method=='FireWithBlacklist' and type(args[6])=='table' then
-            for _,excluded in ipairs(args[6]) do
-                if excluded==p.Character or excluded==p.Tool then localFilter=true; break end
-            end
-        end
-        if not localFilter then return reject('shared filter') end
-    end
-    local trace
-    local now=os.clock()
-    if s.ShowTracers and now>=(self.nextTrace or 0) then
-        self.nextTrace=now+0.05
-        trace={Origin=origin,Original=direction,Sent=direction,Time=now,Redirected=false}
-    end
-    local function skip(reason)
-        self:Count('projectile.skip.'..reason)
-        if trace then trace.Reason=reason; self:TrackProjectile(args,method,trace) end
-        return nil
-    end
-    -- A scoped FastCast Fire call is the shot, including bursts after mouse release.
+    if not inside(caller,p.Tool) then return reject('caller mismatch') end
+    local function skip(reason) return reject(reason) end
     local target=p.Target
     if not target then return skip('no target') end
     if target.Player.Parent~=Players or target.Player.Character~=target.Character
@@ -18201,14 +18250,28 @@ function Silent:Projectile(caller,method,args)
         unit=launch.Unit
     end
     local sent=unit*direction.Magnitude
-    if trace then
-        trace.Sent=sent; trace.Redirected=true; trace.Reason='redirected'
-        self:TrackProjectile(args,method,trace)
-    end
-    self:Count('projectile.redirected')
-    self:Log('trace','projectile.launch','FastCast launch redirected; not server damage confirmation',
+    self:Count('shoot.redirected')
+    self:Log('trace','shoot.direction','Shared local/server launch direction prepared',
         {Method=method,Speed=speed,Range=direction.Magnitude,Target=target.Player.Name},0.5)
     return sent,type(velocity)=='number' and velocity or unit*speed
+end
+function Silent:Projectile(_,method,args)
+    -- Observation only. The gun's shared direction list was already changed upstream.
+    self:Count('projectile.seen')
+    local launch=self.launches and self.launches[args[2]]
+    if not launch or os.clock()-launch.Time>2 or launch.Tool~=self.tool then self:Count('projectile.skip.no matching launch'); return end
+    local direction=args[4]
+    if not finite(direction) or direction.Magnitude<0.001 then return end
+    local index
+    for i,sent in ipairs(launch.Sent) do
+        if (sent.Unit-direction.Unit).Magnitude<0.001 then index=i; break end
+    end
+    if not index then self:Count('projectile.skip.direction mismatch'); return end
+    local now=os.clock()
+    if not self.config.ShowTracers or now<(self.nextTrace or 0) then return end
+    self.nextTrace=now+0.05
+    self:TrackProjectile(args,method,{Origin=args[3],Original=launch.Originals[index].Unit*direction.Magnitude,
+        Sent=direction,Time=now,Redirected=launch.Changed[index],Reason=launch.Reasons[index]})
 end
 function Silent:QueueTrace(trace)
     if trace.Queued then return end
@@ -18369,6 +18432,7 @@ function Silent:Destroy()
     self.alive=false; self:Equip(nil)
     if self.connection then self.connection:Disconnect() end
     if self.projectileHook and self.projectileHook.Owner==self then self.projectileHook.Owner=nil end
+    if self.effectsHook and self.effectsHook.Owner==self then self.effectsHook.Owner=nil end
     for _,slot in ipairs(self.tracePool) do for _,object in pairs(slot) do object:Remove() end end
     if self.targetDot then self.targetDot:Remove(); self.targetLabel:Remove() end
     self.tracePool={}; self.traceQueue={}; self.shots={}
@@ -18770,7 +18834,7 @@ function app:DebugContext()
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     data.SilentStatus=silent and silent.Status or 'not started'
-    data.SilentBackend='FastCast launch'
+    data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius

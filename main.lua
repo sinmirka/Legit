@@ -151,7 +151,7 @@ function app:DebugContext()
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     data.SilentStatus=silent and silent.Status or 'not started'
-    data.SilentBackend='FastCast launch'
+    data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
