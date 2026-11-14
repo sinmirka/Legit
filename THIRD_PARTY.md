@@ -1,4 +1,12 @@
-# Tokyo Lib
+# Obsidian
+
+`vendor/Obsidian/Library.lua`: [deividcomsono/Obsidian](https://github.com/deividcomsono/Obsidian), commit `bed842eabdec1a3c087748d061c169d7848a47be`, MIT, copyright 2025 deividcomsono. License: `vendor/Obsidian/LICENSE`.
+
+`vendor/Obsidian/Lucide.lua`: [notpoiu/lucide-roblox-direct](https://github.com/notpoiu/lucide-roblox-direct), commit `04f2bbae632268b1c165b4e477340b1566606958`, MIT. License: `vendor/Obsidian/Lucide.LICENSE`.
+
+Local integration changes: Obsidian receives the bundled Lucide module as its chunk argument instead of fetching Molto/Lucide over HTTP. Both files locally disable `getcustomasset` to use their upstream Roblox asset ID fallback, avoiding image/font downloads and executor cache maintenance. The widget and layout code remains upstream Obsidian.
+
+## Tokyo Lib (legacy, not bundled)
 
 Основа `vendor/Tokyo.lua` — файл **Tokyo Lib Source.lua**, предоставленный пользователем. Исходная копия сохранена первым коммитом `chore: vendor supplied Tokyo UI library`. Имена и комментарии исходника сохранены. Лицензия в приложенном файле не указана; авторство библиотеки этому проекту не приписывается.
 
