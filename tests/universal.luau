@@ -19,6 +19,12 @@ players.LocalPlayer.Character=localFixture.Character
 local other,otherHum=makePlayer(2,'Alpha')
 local enemy=makePlayer(3,'Beta')
 players.list={players.LocalPlayer,other,enemy}
+local prompt=Instance.new('ProximityPrompt'); prompt.Parent=workspace; prompt.HoldDuration=2
+local unrelated=Instance.new('Part'); unrelated.Parent=workspace
+local promptScans=0
+workspace.GetDescendants=function() promptScans+=1; return {prompt,unrelated} end
+workspace.DescendantAdded=Instance.new('BindableEvent').Activated
+MOCK.services.ProximityPromptService={PromptShown=Instance.new('BindableEvent').Activated}
 local app=assert(loadstring(SOURCES['main.lua']))()
 local tools=app.Tools
 local c,w=app.Config.Character,app.Config.World
@@ -30,6 +36,23 @@ local function button(text)
     end end
     error('missing button: '..text)
 end
+assert(not app.Config.Interaction.Instant and prompt.HoldDuration==2 and promptScans==0,'instant interactions disabled by default')
+option('Interaction_Instant'):SetState(true)
+assert(prompt.HoldDuration==0 and promptScans==1,'existing prompts become instant immediately')
+for _=1,100 do tools:Step() end
+assert(promptScans==1,'no per-frame workspace traversal')
+prompt.HoldDuration=3; tools:Step(); assert(prompt.HoldDuration==0,'game hold-time changes reconciled')
+local spawned=Instance.new('ProximityPrompt'); spawned.Parent=workspace; spawned.HoldDuration=4
+workspace.DescendantAdded:Fire(spawned); tools:Step(); assert(spawned.HoldDuration==0,'new prompts included')
+local shown=Instance.new('ProximityPrompt'); shown.Parent=workspace; shown.HoldDuration=5
+MOCK.services.ProximityPromptService.PromptShown:Fire(shown)
+assert(shown.HoldDuration==0,'shown prompts updated immediately')
+option('Interaction_Instant'):SetState(false)
+assert(prompt.HoldDuration==3 and spawned.HoldDuration==4 and shown.HoldDuration==5,'disable restores latest owned hold duration')
+option('Interaction_Instant'):SetState(true)
+button('Save profile').callback(); option('Interaction_Instant'):SetState(false); button('Load profile').callback()
+assert(app.Config.Interaction.Instant and prompt.HoldDuration==0,'interaction profile roundtrip')
+option('Interaction_Instant'):SetState(false)
 option('Character_Speed'):SetValue(40); option('Character_WalkSpeed'):SetState(true)
 assert(localHum.WalkSpeed==40,'speed UI applies immediately')
 localHum.WalkSpeed=22; tools:Step(); assert(localHum.WalkSpeed==40,'speed stays enforced')
@@ -178,9 +201,11 @@ button('Rescan stamina').callback(); assert(tools.StaminaStatus:find('failed',1,
 getgc=function() return {stamina} end
 button('Rescan stamina').callback()
 option('World_ColorEnabled'):SetState(true); local colorEffect=tools.effects.ColorCorrection
+option('Interaction_Instant'):SetState(true)
 local connection=tools.connections[1]
 app:Unload()
-assert(newHum.WalkSpeed==16 and lighting.ClockTime==14 and colorEffect.Destroyed,'unload restores world and character')
+assert(newHum.WalkSpeed==16 and lighting.ClockTime==14 and colorEffect.Destroyed and prompt.HoldDuration==3,'unload restores world, character and interaction hold time')
+assert(next(tools.prompts)==nil,'prompt cache released')
 assert(not connection.Connected and next(tools.applied)==nil and next(tools.effects)==nil and #tools.staminaTables==0,'owned resources released')
 stamina.S=12; tools:Step(); assert(stamina.S==12,'unloaded instance never refills')
 print('PASS universal tools: property ownership, respawn, jump, lighting, effects, player priorities, spectate, profiles and lazy script launchers')

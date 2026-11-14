@@ -94,6 +94,7 @@ local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
     Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false,InfiniteStamina=false},
+    Interaction={Instant=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
         BloomSize=24,BloomThreshold=1,ColorEnabled=false,Brightness=0,Contrast=0,Saturation=0,
@@ -154,6 +155,7 @@ function app:DebugContext()
     data.StaminaStatus=tools and tools.StaminaStatus or 'not started'
     data.InfiniteStamina=config.Character.InfiniteStamina
     data.StaminaTables=tools and #tools.staminaTables or 0
+    data.InstantInteraction=config.Interaction.Instant
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
@@ -210,7 +212,7 @@ local ok,message=xpcall(function()
     })
     local registered={}
     local function refreshTools(group)
-        if group=='Character' or group=='World' then tools:Step() end
+        if group=='Character' or group=='World' or group=='Interaction' then tools:Step() end
     end
     local function flag(group,key) return group..'_'..key end
     local function remember(group,key,option,kind,choices)
@@ -455,6 +457,8 @@ local ok,message=xpcall(function()
     slider(right,'Saturation','World','Saturation',-1,1,0.01)
     color(right,'Tint','World','Tint')
     left,right=sections('Misc','Misc / Universal','Scripts')
+    toggle(left,'Instant interaction (E)','Interaction','Instant')
+    left:AddText({text='Removes ProximityPrompt hold time. Press E normally; server timers may still apply.'})
     local function action(fn)
         local success,problem=pcall(fn)
         if not success then library:SendNotification(tostring(problem),5) end

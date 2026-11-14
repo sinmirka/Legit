@@ -18472,7 +18472,24 @@ local function humanoid(player)
 end
 function Tools.new(config,engine,library)
     return setmetatable({config=config,engine=engine,library=library,alive=true,
-        applied={},effects={},connections={},launched={},staminaTables={},StaminaStatus='Disabled'},Tools)
+        applied={},effects={},connections={},launched={},staminaTables={},StaminaStatus='Disabled',
+        prompts=setmetatable({},{__mode='k'})},Tools)
+end
+function Tools:TrackPrompt(object)
+    if self.alive and self.config.Interaction.Instant and object:IsA('ProximityPrompt') then self.prompts[object]=true end
+end
+function Tools:InteractionStep(set)
+    if not self.config.Interaction.Instant then
+        self.prompts=setmetatable({},{__mode='k'}); self.promptActive=false; return
+    end
+    if not self.promptActive then
+        self.promptActive=true
+        for _,object in ipairs(workspace:GetDescendants()) do self:TrackPrompt(object) end
+    end
+    for prompt in pairs(self.prompts) do
+        if prompt.Parent and prompt:IsDescendantOf(workspace) then set(prompt,'HoldDuration',0)
+        else self.prompts[prompt]=nil end
+    end
 end
 function Tools:StaminaStatusTo(status)
     self.StaminaStatus=status
@@ -18564,6 +18581,7 @@ function Tools:Step()
         desired[object]=desired[object] or {}; desired[object][key]=value
     end
     local c,w=self.config.Character,self.config.World
+    self:InteractionStep(set)
     local character=Players.LocalPlayer.Character
     local hum=humanoid(Players.LocalPlayer)
     self:StaminaStep(character,hum)
@@ -18641,6 +18659,9 @@ function Tools:RunScript(name)
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
+    if workspace.DescendantAdded then connect(workspace.DescendantAdded,function(object) self:TrackPrompt(object) end) end
+    local ok,prompts=pcall(game.GetService,game,'ProximityPromptService')
+    if ok and prompts.PromptShown then connect(prompts.PromptShown,function(prompt) self:TrackPrompt(prompt); self:Step() end) end
     connect(RunService.Heartbeat,function() self:Step() end)
     connect(Input.JumpRequest,function()
         local hum=humanoid(Players.LocalPlayer)
@@ -18661,6 +18682,7 @@ function Tools:Destroy()
     self:RescanStamina(); self:StaminaStatusTo('Disabled')
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
     self:Reconcile({})
+    self.prompts=setmetatable({},{__mode='k'}); self.promptActive=false
     for name in pairs(self.effects) do self:Effect(name,'',false) end
     self.Selected,self.Spectating=nil,false
 end
@@ -18840,6 +18862,7 @@ local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
     Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false,InfiniteStamina=false},
+    Interaction={Instant=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
         BloomSize=24,BloomThreshold=1,ColorEnabled=false,Brightness=0,Contrast=0,Saturation=0,
@@ -18900,6 +18923,7 @@ function app:DebugContext()
     data.StaminaStatus=tools and tools.StaminaStatus or 'not started'
     data.InfiniteStamina=config.Character.InfiniteStamina
     data.StaminaTables=tools and #tools.staminaTables or 0
+    data.InstantInteraction=config.Interaction.Instant
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
@@ -18956,7 +18980,7 @@ local ok,message=xpcall(function()
     })
     local registered={}
     local function refreshTools(group)
-        if group=='Character' or group=='World' then tools:Step() end
+        if group=='Character' or group=='World' or group=='Interaction' then tools:Step() end
     end
     local function flag(group,key) return group..'_'..key end
     local function remember(group,key,option,kind,choices)
@@ -19201,6 +19225,8 @@ local ok,message=xpcall(function()
     slider(right,'Saturation','World','Saturation',-1,1,0.01)
     color(right,'Tint','World','Tint')
     left,right=sections('Misc','Misc / Universal','Scripts')
+    toggle(left,'Instant interaction (E)','Interaction','Instant')
+    left:AddText({text='Removes ProximityPrompt hold time. Press E normally; server timers may still apply.'})
     local function action(fn)
         local success,problem=pcall(fn)
         if not success then library:SendNotification(tostring(problem),5) end

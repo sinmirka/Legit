@@ -16,7 +16,24 @@ local function humanoid(player)
 end
 function Tools.new(config,engine,library)
     return setmetatable({config=config,engine=engine,library=library,alive=true,
-        applied={},effects={},connections={},launched={},staminaTables={},StaminaStatus='Disabled'},Tools)
+        applied={},effects={},connections={},launched={},staminaTables={},StaminaStatus='Disabled',
+        prompts=setmetatable({},{__mode='k'})},Tools)
+end
+function Tools:TrackPrompt(object)
+    if self.alive and self.config.Interaction.Instant and object:IsA('ProximityPrompt') then self.prompts[object]=true end
+end
+function Tools:InteractionStep(set)
+    if not self.config.Interaction.Instant then
+        self.prompts=setmetatable({},{__mode='k'}); self.promptActive=false; return
+    end
+    if not self.promptActive then
+        self.promptActive=true
+        for _,object in ipairs(workspace:GetDescendants()) do self:TrackPrompt(object) end
+    end
+    for prompt in pairs(self.prompts) do
+        if prompt.Parent and prompt:IsDescendantOf(workspace) then set(prompt,'HoldDuration',0)
+        else self.prompts[prompt]=nil end
+    end
 end
 function Tools:StaminaStatusTo(status)
     self.StaminaStatus=status
@@ -108,6 +125,7 @@ function Tools:Step()
         desired[object]=desired[object] or {}; desired[object][key]=value
     end
     local c,w=self.config.Character,self.config.World
+    self:InteractionStep(set)
     local character=Players.LocalPlayer.Character
     local hum=humanoid(Players.LocalPlayer)
     self:StaminaStep(character,hum)
@@ -185,6 +203,9 @@ function Tools:RunScript(name)
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
+    if workspace.DescendantAdded then connect(workspace.DescendantAdded,function(object) self:TrackPrompt(object) end) end
+    local ok,prompts=pcall(game.GetService,game,'ProximityPromptService')
+    if ok and prompts.PromptShown then connect(prompts.PromptShown,function(prompt) self:TrackPrompt(prompt); self:Step() end) end
     connect(RunService.Heartbeat,function() self:Step() end)
     connect(Input.JumpRequest,function()
         local hum=humanoid(Players.LocalPlayer)
@@ -205,6 +226,7 @@ function Tools:Destroy()
     self:RescanStamina(); self:StaminaStatusTo('Disabled')
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
     self:Reconcile({})
+    self.prompts=setmetatable({},{__mode='k'}); self.promptActive=false
     for name in pairs(self.effects) do self:Effect(name,'',false) end
     self.Selected,self.Spectating=nil,false
 end
