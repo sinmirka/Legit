@@ -18472,7 +18472,54 @@ local function humanoid(player)
 end
 function Tools.new(config,engine,library)
     return setmetatable({config=config,engine=engine,library=library,alive=true,
-        applied={},effects={},connections={},launched={}},Tools)
+        applied={},effects={},connections={},launched={},staminaTables={},StaminaStatus='Disabled'},Tools)
+end
+function Tools:StaminaStatusTo(status)
+    self.StaminaStatus=status
+    if self.engine.Logger then self.engine.Logger:State('Stamina','status',status) end
+end
+function Tools:RescanStamina()
+    self.staminaTables={}; self.nextStaminaScan=0
+end
+function Tools:StaminaStep(character,hum)
+    if not self.config.Character.InfiniteStamina then
+        self:RescanStamina(); self.staminaCharacter=nil; self:StaminaStatusTo('Disabled'); return
+    end
+    if type(getgc)~='function' then self:StaminaStatusTo('Unavailable: missing getgc'); return end
+    if not character or not hum or hum.Health<=0 then
+        self:RescanStamina(); self:StaminaStatusTo('Waiting for character'); return
+    end
+    if self.staminaCharacter~=character then self:RescanStamina(); self.staminaCharacter=character end
+    local now=os.clock()
+    if now>=(self.nextStaminaScan or 0) then
+        self.nextStaminaScan=now+15
+        local ok,objects=pcall(getgc,true)
+        if not ok or type(objects)~='table' then
+            self:StaminaStatusTo('Unavailable: getgc scan failed'); self.nextStaminaScan=now+5; return
+        end
+        local found={}
+        for _,object in ipairs(objects) do
+            if type(object)=='table' and not table.isfrozen(object) then
+                local value=rawget(object,'S')
+                if type(value)=='number' and value==value and value>=0 and value<=100 then
+                    table.insert(found,object)
+                    if #found>=128 then break end
+                end
+            end
+        end
+        self.staminaTables=found
+        if #found==0 then self.nextStaminaScan=now+5 end
+    end
+    local count=0
+    for index=#self.staminaTables,1,-1 do
+        local object=self.staminaTables[index]
+        local value=rawget(object,'S')
+        if not table.isfrozen(object) and type(value)=='number' and value==value and value>=0 and value<=100 then
+            local written=pcall(rawset,object,'S',100)
+            if written then count+=1 else table.remove(self.staminaTables,index) end
+        else table.remove(self.staminaTables,index) end
+    end
+    self:StaminaStatusTo(count>0 and ('Refilling '..count..' candidate stamina table(s)') or 'No compatible stamina table found')
 end
 -- Restore only values we still own, preserving newer writes from the game or other scripts.
 function Tools:Reconcile(desired)
@@ -18519,6 +18566,7 @@ function Tools:Step()
     local c,w=self.config.Character,self.config.World
     local character=Players.LocalPlayer.Character
     local hum=humanoid(Players.LocalPlayer)
+    self:StaminaStep(character,hum)
     if hum and hum.Health>0 then
         if c.WalkSpeed then set(hum,'WalkSpeed',c.Speed) end
         if c.JumpOverride then
@@ -18610,6 +18658,7 @@ end
 function Tools:Destroy()
     if not self.alive then return end
     self.alive=false
+    self:RescanStamina(); self:StaminaStatusTo('Disabled')
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
     self:Reconcile({})
     for name in pairs(self.effects) do self:Effect(name,'',false) end
@@ -18790,7 +18839,7 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
-    Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false},
+    Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false,InfiniteStamina=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
         BloomSize=24,BloomThreshold=1,ColorEnabled=false,Brightness=0,Contrast=0,Saturation=0,
@@ -18848,6 +18897,9 @@ function app:DebugContext()
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     data.SilentStatus=silent and silent.Status or 'not started'
+    data.StaminaStatus=tools and tools.StaminaStatus or 'not started'
+    data.InfiniteStamina=config.Character.InfiniteStamina
+    data.StaminaTables=tools and #tools.staminaTables or 0
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
@@ -19111,7 +19163,11 @@ local ok,message=xpcall(function()
     silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
     silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
-    tabs.Character:AddSection('Character',1):AddText({text='Game-specific stamina, fall damage and ragdoll changes are not included.'})
+    local stamina=tabs.Character:AddSection('Criminality / Stamina',1)
+    toggle(stamina,'Infinite stamina','Character','InfiniteStamina')
+    stamina:AddButton({text='Rescan stamina',callback=function() tools:RescanStamina(); tools:Step(); library:SendNotification(tools.StaminaStatus,6) end})
+    stamina:AddButton({text='Show stamina status',callback=function() library:SendNotification(tools.StaminaStatus,6) end})
+    stamina:AddText({text='Requires getgc. Cached S-field method; current game behavior needs live verification.'})
     tabs.ESP:AddSection('Values / Misc ESP',2):AddText({text='Game-specific loot, dealers and infection ESP are not included.'})
     left,right=sections('Character','Character / Universal','Speed options')
     toggle(left,'Noclip','Character','Noclip')

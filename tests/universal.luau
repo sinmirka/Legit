@@ -145,9 +145,42 @@ tools:RunScript('RemoteSpy'); assert(not tools.launched.RemoteSpy,'compile failu
 game.HttpGet=function() error('network failure') end
 tools:RunScript('RemoteSpy'); assert(not tools.launched.RemoteSpy,'network failure allows retry')
 game.HttpGet=http
+-- Stamina discovery is bounded and never runs GC every frame.
+assert(not c.InfiniteStamina,'stamina disabled by default')
+option('Character_InfiniteStamina'):SetState(true)
+assert(tools.StaminaStatus:find('getgc',1,true),'missing API status')
+local stamina={S=24}; local empty={S=0}
+local frozen=table.freeze({S=35})
+local invalid={S='hello'}; local large={S=250}
+local scans=0
+getgc=function(includeTables)
+    assert(includeTables,'include GC tables')
+    scans+=1; return {stamina,empty,frozen,invalid,large,{S=0/0},function() end}
+end
+button('Rescan stamina').callback()
+assert(scans==1 and stamina.S==100 and empty.S==100 and frozen.S==35 and invalid.S=='hello' and large.S==250,'only mutable numeric 0..100 S candidates updated')
+for _=1,100 do stamina.S=10; tools:Step() end
+assert(scans==1 and stamina.S==100,'cached refill without per-frame GC scan')
+option('Character_InfiniteStamina'):SetState(false); stamina.S=40; tools:Step()
+assert(stamina.S==40 and #tools.staminaTables==0,'disable stops refill and releases cache')
+option('Character_InfiniteStamina'):SetState(true)
+button('Save profile').callback(); option('Character_InfiniteStamina'):SetState(false)
+button('Load profile').callback(); assert(c.InfiniteStamina,'stamina profile roundtrip')
+local oldCharacter=players.LocalPlayer.Character
+players.LocalPlayer.Character=nil; tools:Step(); assert(#tools.staminaTables==0,'character removal clears cache')
+players.LocalPlayer.Character=oldCharacter; local beforeScan=scans; tools:Step()
+assert(scans==beforeScan+1,'respawn rescans')
+local many={}; for index=1,200 do many[index]={S=50} end
+getgc=function() return many end
+button('Rescan stamina').callback(); assert(#tools.staminaTables==128 and many[129].S==50,'bounded candidate cache')
+getgc=function() error('unsupported') end
+button('Rescan stamina').callback(); assert(tools.StaminaStatus:find('failed',1,true),'scan failure isolated')
+getgc=function() return {stamina} end
+button('Rescan stamina').callback()
 option('World_ColorEnabled'):SetState(true); local colorEffect=tools.effects.ColorCorrection
 local connection=tools.connections[1]
 app:Unload()
 assert(newHum.WalkSpeed==16 and lighting.ClockTime==14 and colorEffect.Destroyed,'unload restores world and character')
-assert(not connection.Connected and next(tools.applied)==nil and next(tools.effects)==nil,'owned resources released')
+assert(not connection.Connected and next(tools.applied)==nil and next(tools.effects)==nil and #tools.staminaTables==0,'owned resources released')
+stamina.S=12; tools:Step(); assert(stamina.S==12,'unloaded instance never refills')
 print('PASS universal tools: property ownership, respawn, jump, lighting, effects, player priorities, spectate, profiles and lazy script launchers')

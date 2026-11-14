@@ -35,7 +35,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/sinmirka/Legit/main/L
 | --- | --- |
 | **Aimbot** | Camera Aim: клавиша, приоритеты, sticky, фильтры, FOV / deadzone, сглаживание, prediction; отдельный Silent Aim: FOV, hit chance, части тела, приоритеты, фильтры, prediction и диагностика |
 | **Combat** | Существующая Melee Aura через Raycast hook: ручные удары / автоатака, дальность, интервал, окно удара, часть тела, приоритет и независимые фильтры |
-| **Character** | Walk speed, Jump power / height с учётом режима игры, Noclip, Infinite jump |
+| **Character** | Walk speed, Jump power / height с учётом режима игры, Noclip, Infinite jump, Infinite stamina (Criminality) |
 | **ESP** | Chams / outline, фильтры, дальность, fade / pulse / rainbow, все цвета и прозрачность; Full / Corners рамки, скелет, линии, HP bar; имя / HP / расстояние / инструмент / команда; World с временем, экспозицией, ambience, тенями, bloom, color correction и атмосферой |
 | **Misc** | Dex Explorer, Remote Spy (SimpleSpy), копирование PlaceId / JobId, переподключение к текущему серверу |
 | **Players** | Поиск по DisplayName / Username, выбор игрока, Friend / Neutral / Enemy, наблюдение и остановка наблюдения |
@@ -53,7 +53,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/sinmirka/Legit/main/L
 
 ### Что отложено
 
-По референсам сохранены вкладки и близкие группы настроек. Отложены Triggerbot, recoil / wallbang / auto-block, отдельные Rage Melee / Hit Reg, Ghost Hunt, stamina / no fall / ragdoll, удаление игровых препятствий, loot / dealer / infection ESP, auto pickup / lockpick / staff detector и hitsounds. Fly и анимационные инструменты тоже отложены до отдельной реализации и проверки в игре.
+По референсам сохранены вкладки и близкие группы настроек. Отложены Triggerbot, recoil / wallbang / auto-block, отдельные Rage Melee / Hit Reg, Ghost Hunt, no fall / ragdoll, удаление игровых препятствий, loot / dealer / infection ESP, auto pickup / lockpick / staff detector и hitsounds. Fly и анимационные инструменты тоже отложены до отдельной реализации и проверки в игре.
 
 ### Универсальные функции
 
@@ -174,3 +174,9 @@ python tests/run.py --luau /path/to/luau --compiler /path/to/luau-compile
 Происхождение библиотеки и список исправлений: [THIRD_PARTY.md](THIRD_PARTY.md).
 
 Melee Aura всегда исключает друзей Roblox и игроков с приоритетом **Players → Friend**, включая старые профили с `SkipFriends=false`. Пока проверка дружбы не завершена успешно, игрок также защищён. Автоатака продолжает работать по остальным допустимым целям, даже если друг находится рядом. Случайное попадание широким взмахом по другу не блокируется. Приоритет / дружба повторно проверяются перед перенаправлением луча. Уже начатые игровые анимации и ручные удары этим фильтром не отменяются.
+
+### Infinite stamina
+
+**Character → Criminality / Stamina → Infinite stamina** (по умолчанию выключен, сохраняется в профиле). Основано на поиске GC-таблиц с полем `S` из [публичного скрипта Criminality](https://github.com/Trojankill/Criminality/blob/main/CriminalityV2.lua). Кандидаты ограничены изменяемыми таблицами с числом `S` в диапазоне 0–100. Эти значения удерживаются на 100, без вызовов игровых remotes. Это эвристика: поле `S` не доказывает принадлежность стамине, работа текущей игры ещё требует проверки.
+
+Нужен `getgc`. Сканирование выполняется при включении / смене персонажа, затем раз в 15 секунд; если ничего не найдено или сканирование завершилось ошибкой — раз в 5 секунд. Между сканированиями обновляется только кеш (не более 128 таблиц). **Rescan stamina** обновляет кеш вручную, **Show stamina status** показывает недоступный API / отсутствие кандидатов / число пополняемых таблиц. Отладочный отчёт содержит `StaminaStatus`, `StaminaTables`, `InfiniteStamina`. Выключение и выгрузка прекращают пополнение и освобождают ссылки; текущее количество стамины не откатывается к старому значению.

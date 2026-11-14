@@ -93,7 +93,7 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
-    Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false},
+    Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false,InfiniteStamina=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
         BloomSize=24,BloomThreshold=1,ColorEnabled=false,Brightness=0,Contrast=0,Saturation=0,
@@ -151,6 +151,9 @@ function app:DebugContext()
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     data.SilentStatus=silent and silent.Status or 'not started'
+    data.StaminaStatus=tools and tools.StaminaStatus or 'not started'
+    data.InfiniteStamina=config.Character.InfiniteStamina
+    data.StaminaTables=tools and #tools.staminaTables or 0
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
@@ -414,7 +417,11 @@ local ok,message=xpcall(function()
     silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
     silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
-    tabs.Character:AddSection('Character',1):AddText({text='Game-specific stamina, fall damage and ragdoll changes are not included.'})
+    local stamina=tabs.Character:AddSection('Criminality / Stamina',1)
+    toggle(stamina,'Infinite stamina','Character','InfiniteStamina')
+    stamina:AddButton({text='Rescan stamina',callback=function() tools:RescanStamina(); tools:Step(); library:SendNotification(tools.StaminaStatus,6) end})
+    stamina:AddButton({text='Show stamina status',callback=function() library:SendNotification(tools.StaminaStatus,6) end})
+    stamina:AddText({text='Requires getgc. Cached S-field method; current game behavior needs live verification.'})
     tabs.ESP:AddSection('Values / Misc ESP',2):AddText({text='Game-specific loot, dealers and infection ESP are not included.'})
     left,right=sections('Character','Character / Universal','Speed options')
     toggle(left,'Noclip','Character','Noclip')
