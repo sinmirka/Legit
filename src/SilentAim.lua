@@ -230,8 +230,8 @@ function Silent:Step(now)
                 local targetHum=targetChar:FindFirstChildOfClass('Humanoid')
                 local downed,flags=false,nil
                 if s.SkipDowned then downed,flags=self.melee:DownedState(player,targetChar,targetHum) end
-                if downed then candidate=nil; reason='downed/ragdoll'
-                else candidate.Character=targetChar; candidate.Humanoid=targetHum; candidate.DownedFlags=flags end
+                if downed and targetHum.Health<=15 then candidate=nil; reason='downed/ragdoll <=15 HP'
+                else candidate.Character=targetChar; candidate.Humanoid=targetHum; candidate.DownedFlags=flags; candidate.Downed=downed end
             end
             if candidate and (not best or self.engine:TargetRank(player)<self.engine:TargetRank(best.Player)
                 or (self.engine:TargetRank(player)==self.engine:TargetRank(best.Player) and (candidate.Score<best.Score
@@ -271,8 +271,8 @@ function Silent:AimLaunch(caller,method,args)
     if target.Player.Parent~=Players or target.Player.Character~=target.Character
         or target.Humanoid.Health<=0 or target.Humanoid.Health<s.MinHealth or target.Part.Parent~=target.Character
         or (target.Part.Position-p.Root.Position).Magnitude>s.MaxDistance then return skip('target invalidated') end
-    if s.SkipDowned then
-        if target.Humanoid.PlatformStand then return skip('downed/ragdoll') end
+    if s.SkipDowned and target.Humanoid.Health<=15 then
+        if target.Downed or target.Humanoid.PlatformStand then return skip('downed/ragdoll') end
         for _,flag in ipairs(target.DownedFlags or {}) do if flag.Value then return skip('downed/ragdoll') end end
     end
     if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return skip('hit chance') end

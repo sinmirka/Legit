@@ -105,11 +105,10 @@ function MeleeAura:Candidate(player,root)
     if not self.engine:Allowed(player,s) then return nil,'team/friend/priority' end
     local character,humanoid,targetRoot=rig(player)
     if not character then return nil,'rig/dead' end
-    local flags
+    local flags,downed
     if s.SkipDowned then
-        local downed
         downed,flags=self:DownedState(player,character,humanoid)
-        if downed then return nil,'downed/ragdoll' end
+        if downed and humanoid.Health<=15 then return nil,'downed/ragdoll <=15 HP' end
     end
     if humanoid.Health<s.MinHealth then return nil,'minimum HP' end
     if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return nil,'ForceField' end
@@ -122,7 +121,7 @@ function MeleeAura:Candidate(player,root)
         local hit=workspace:Raycast(root.Position,delta,self.ray)
         if hit and not hit.Instance:IsDescendantOf(character) then return nil,'wall' end
     end
-    return {Player=player,Character=character,Humanoid=humanoid,Part=part,DownedFlags=flags,
+    return {Player=player,Character=character,Humanoid=humanoid,Part=part,DownedFlags=flags,Downed=downed,
         Score=s.Priority=='Lowest health' and humanoid.Health or delta.Magnitude}
 end
 function MeleeAura:Equip(tool)
@@ -269,8 +268,8 @@ function MeleeAura:Redirect(caller,origin,direction)
     if not caller or (not inside(caller,self.tool)
         and not caller.Name:lower():find('raycasthitbox',1,true)) then return reject('caller mismatch') end
     local candidate=prepared.Target
-    if self.config.SkipDowned then
-        if candidate.Humanoid.PlatformStand then return reject('downed/ragdoll') end
+    if self.config.SkipDowned and candidate.Humanoid.Health<=15 then
+        if candidate.Downed or candidate.Humanoid.PlatformStand then return reject('downed/ragdoll') end
         for _,flag in ipairs(candidate.DownedFlags or {}) do
             if flag.Value==true then return reject('downed/ragdoll') end
         end

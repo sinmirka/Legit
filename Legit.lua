@@ -17708,11 +17708,10 @@ function MeleeAura:Candidate(player,root)
     if not self.engine:Allowed(player,s) then return nil,'team/friend/priority' end
     local character,humanoid,targetRoot=rig(player)
     if not character then return nil,'rig/dead' end
-    local flags
+    local flags,downed
     if s.SkipDowned then
-        local downed
         downed,flags=self:DownedState(player,character,humanoid)
-        if downed then return nil,'downed/ragdoll' end
+        if downed and humanoid.Health<=15 then return nil,'downed/ragdoll <=15 HP' end
     end
     if humanoid.Health<s.MinHealth then return nil,'minimum HP' end
     if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return nil,'ForceField' end
@@ -17725,7 +17724,7 @@ function MeleeAura:Candidate(player,root)
         local hit=workspace:Raycast(root.Position,delta,self.ray)
         if hit and not hit.Instance:IsDescendantOf(character) then return nil,'wall' end
     end
-    return {Player=player,Character=character,Humanoid=humanoid,Part=part,DownedFlags=flags,
+    return {Player=player,Character=character,Humanoid=humanoid,Part=part,DownedFlags=flags,Downed=downed,
         Score=s.Priority=='Lowest health' and humanoid.Health or delta.Magnitude}
 end
 function MeleeAura:Equip(tool)
@@ -17872,8 +17871,8 @@ function MeleeAura:Redirect(caller,origin,direction)
     if not caller or (not inside(caller,self.tool)
         and not caller.Name:lower():find('raycasthitbox',1,true)) then return reject('caller mismatch') end
     local candidate=prepared.Target
-    if self.config.SkipDowned then
-        if candidate.Humanoid.PlatformStand then return reject('downed/ragdoll') end
+    if self.config.SkipDowned and candidate.Humanoid.Health<=15 then
+        if candidate.Downed or candidate.Humanoid.PlatformStand then return reject('downed/ragdoll') end
         for _,flag in ipairs(candidate.DownedFlags or {}) do
             if flag.Value==true then return reject('downed/ragdoll') end
         end
@@ -18188,8 +18187,8 @@ function Silent:Step(now)
                 local targetHum=targetChar:FindFirstChildOfClass('Humanoid')
                 local downed,flags=false,nil
                 if s.SkipDowned then downed,flags=self.melee:DownedState(player,targetChar,targetHum) end
-                if downed then candidate=nil; reason='downed/ragdoll'
-                else candidate.Character=targetChar; candidate.Humanoid=targetHum; candidate.DownedFlags=flags end
+                if downed and targetHum.Health<=15 then candidate=nil; reason='downed/ragdoll <=15 HP'
+                else candidate.Character=targetChar; candidate.Humanoid=targetHum; candidate.DownedFlags=flags; candidate.Downed=downed end
             end
             if candidate and (not best or self.engine:TargetRank(player)<self.engine:TargetRank(best.Player)
                 or (self.engine:TargetRank(player)==self.engine:TargetRank(best.Player) and (candidate.Score<best.Score
@@ -18229,8 +18228,8 @@ function Silent:AimLaunch(caller,method,args)
     if target.Player.Parent~=Players or target.Player.Character~=target.Character
         or target.Humanoid.Health<=0 or target.Humanoid.Health<s.MinHealth or target.Part.Parent~=target.Character
         or (target.Part.Position-p.Root.Position).Magnitude>s.MaxDistance then return skip('target invalidated') end
-    if s.SkipDowned then
-        if target.Humanoid.PlatformStand then return skip('downed/ragdoll') end
+    if s.SkipDowned and target.Humanoid.Health<=15 then
+        if target.Downed or target.Humanoid.PlatformStand then return skip('downed/ragdoll') end
         for _,flag in ipairs(target.DownedFlags or {}) do if flag.Value then return skip('downed/ragdoll') end end
     end
     if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return skip('hit chance') end
@@ -19064,7 +19063,7 @@ local ok,message=xpcall(function()
     toggle(right,'Skip teammates','Melee','TeamCheck')
     toggle(right,'Skip Roblox friends','Melee','SkipFriends')
     toggle(right,'Skip ForceField','Melee','SkipForceField')
-    toggle(right,'Skip downed / ragdolled','Melee','SkipDowned')
+    toggle(right,'Skip downed at 15 HP or below','Melee','SkipDowned')
     toggle(right,'Check walls','Melee','WallCheck')
     slider(right,'Minimum target HP','Melee','MinHealth',1,100,1)
     right:AddText({text='Requires executor Raycast hook APIs'})
@@ -19080,7 +19079,7 @@ local ok,message=xpcall(function()
     color(silentControls,'Silent FOV color','Silent','FOVColor')
     slider(silentControls,'Silent FOV opacity','Silent','FOVOpacity',0,1,0.01)
     toggle(silentControls,'Silent wall check','Silent','WallCheck')
-    toggle(silentControls,'Silent skip downed','Silent','SkipDowned')
+    toggle(silentControls,'Silent skip downed at 15 HP or below','Silent','SkipDowned')
     toggle(silentControls,'Silent skip teammates','Silent','TeamCheck')
     toggle(silentControls,'Silent skip friends','Silent','SkipFriends')
     toggle(silentControls,'Silent skip ForceField','Silent','SkipForceField')

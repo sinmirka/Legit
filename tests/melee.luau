@@ -153,8 +153,11 @@ local function downedFlag(player)
 end
 local nearDowned,farDowned=downedFlag(near),downedFlag(far)
 aura:Step(13.7); tool.Activated:Fire()
-nearDowned.Value=true
+nearDowned.Value=true; nearHum.Health=15; farHum.Health=15
 unchanged('cached Downed BoolValue blocks a ray immediately, without Instance calls')
+nearHum.Health=16; aura:Step(13.75); tool.Activated:Fire()
+assert(aura.target.Player==near and cast()~=original,'downed above 15 HP allowed')
+nearHum.Health=15; unchanged('HP falling to 15 blocks cached downed target immediately')
 aura:Step(13.8); assert(aura.target and aura.target.Player==far,'downed nearest target skipped')
 farDowned.Value=true; local beforeDowned=attacks; s.AutoAttack=true
 aura:Step(13.9)
@@ -173,7 +176,7 @@ aura:Step(13.95); assert(aura.target.Player==near,'filter may be explicitly disa
 s.SkipDowned=true; nearDowned.Value=false
 nearHum.Health=5; aura:Step(13.96)
 assert(aura.target.Player==near,'low health alone is not treated as downed')
-nearHum.Health=100; statsRoot.Children[near.Name]=nil
+nearHum.Health=100; farHum.Health=100; statsRoot.Children[near.Name]=nil
 aura:Step(13.97); assert(aura.target.Player==near,'missing game stats do not crash or exclude healthy rigs')
 character.Children.Humanoid.Health=0; aura:Step(14); assert(not aura.target,'local death')
 character.Children.Humanoid.Health=100

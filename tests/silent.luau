@@ -125,7 +125,7 @@ exclusions={otherChar}; assert(fire()==direction,'other shooter never redirected
 exclusions={character}; assert(fire('FireWithWhitelist')==direction,'local character in whitelist does not identify shooter')
 callingscript=caller
 hum.Health=0; assert(fire()==direction,'target death invalidates cached aim'); hum.Health=100
-hum.PlatformStand=true; assert(fire()==direction,'newly downed cached target skipped'); hum.PlatformStand=false
+hum.PlatformStand=true; hum.Health=16; assert(fire()~=direction,'downed above 15 HP allowed'); hum.Health=15; assert(fire()==direction,'newly downed cached target skipped'); hum.PlatformStand=false; hum.Health=100
 local focused=MOCK.services.UserInputService.GetFocusedTextBox
 local candidate=app.Engine.Candidate
 MOCK.services.UserInputService.GetFocusedTextBox=function() error('input query in hot path') end
@@ -151,7 +151,7 @@ app.Engine.playerModes[target.UserId]=nil; app.Engine.playerModes[other.UserId]=
 assert(silent.prepared.Target.Player==other,'Enemy preferred'); app.Engine.playerModes[other.UserId]=nil
 target.Team=players.LocalPlayer.Team; s.TeamCheck=true; silent:Step(8)
 assert(silent.prepared.Target.Player==other,'team filter'); s.TeamCheck=false
-hum.PlatformStand=true; silent:Step(9); assert(silent.prepared.Target.Player==other,'downed/ragdoll filter'); hum.PlatformStand=false
+hum.PlatformStand=true; hum.Health=15; silent:Step(9); assert(silent.prepared.Target.Player==other,'downed/ragdoll filter'); hum.PlatformStand=false; hum.Health=100
 s.Part='UpperTorso'; s.Prediction=true; silent:Step(10)
 assert(silent.prepared.Target.Part==targetChar.Children.Torso and silent.prepared.Target.Position.X>6,'R6 and prediction')
 s.Part='Head'; s.Prediction=false
