@@ -48,7 +48,7 @@ function MeleeAura:BlockReason()
     if self.config.PauseMenu and self.library.open then return 'menu open' end
 end
 function MeleeAura:Reset()
-    self.target,self.swingUntil=nil,0
+    self.target,self.prepared,self.swingUntil=nil,nil,0
 end
 function MeleeAura:Blocked()
     return self:BlockReason()~=nil
@@ -70,7 +70,8 @@ function MeleeAura:Candidate(player,root)
         local hit=workspace:Raycast(root.Position,delta,self.ray)
         if hit and not hit.Instance:IsDescendantOf(character) then return nil,'wall' end
     end
-    return {Player=player,Part=part,Score=s.Priority=='Lowest health' and humanoid.Health or delta.Magnitude}
+    return {Player=player,Character=character,Humanoid=humanoid,Part=part,
+        Score=s.Priority=='Lowest health' and humanoid.Health or delta.Magnitude}
 end
 function MeleeAura:Equip(tool)
     if self.tool==tool then return end
@@ -101,7 +102,7 @@ function MeleeAura:InstallHook()
     local env=getgenv()
     local state=env.LegitMeleeRaycastHook
     -- Upgrade the old dispatcher once; leave its owner empty so it stays transparent.
-    if state and state.Version~=2 then state.Owner=nil; state=nil end
+    if state and state.Version~=3 then state.Owner=nil; state=nil end
     if not state then
         local unavailable=self:CapabilityProblem()
         if unavailable then
@@ -109,16 +110,19 @@ function MeleeAura:InstallHook()
             self:Log('error','capabilities',self.Status,nil,5)
             return false
         end
-        state={Version=2}
+        state={Version=3}
         local previous
         local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
         local ok,result=pcall(function()
             return hookmetamethod(game,'__namecall',wrap(function(receiver,...)
+                -- Capture before any work. Never call an Instance method in this
+                -- dispatcher: it can replace the executor's active namecall method.
+                local method=getnamecallmethod()
                 local owner=state.Owner
-                if owner and receiver==workspace then
+                if method=='Raycast' and owner and owner.alive and owner.config.Enabled
+                    and receiver==workspace and not checkcaller() then
                     local args=table.pack(...)
                     local succeeded,direction=pcall(function()
-                        if getnamecallmethod()~='Raycast' or checkcaller() then return end
                         owner:Count('ray.seen')
                         return owner:Redirect(getcallingscript(),args[1],args[2])
                     end)
@@ -151,36 +155,63 @@ function MeleeAura:InstallHook()
 end
 local function pathOf(object)
     if not object then return 'nil' end
-    local ok,path=pcall(function() return object:GetFullName() end)
-    return ok and path or object.Name or 'unknown'
+    local names={}
+    for _=1,32 do
+        if not object then break end
+        table.insert(names,1,object.Name or '?')
+        object=object.Parent
+    end
+    return table.concat(names,'.')
+end
+local function inside(object,parent)
+    for _=1,64 do
+        if not object then return false end
+        if object==parent then return true end
+        object=object.Parent
+    end
+    return false
 end
 function MeleeAura:ObserveHit(result)
     self:Count('ray.redirected')
-    if not self.logger or not self.logger.settings.CaptureRays then return end
+    if not self.logger or not self.logger.settings.Enabled or not self.logger.settings.CaptureRays then return end
+    local now=os.clock()
+    if now<(self.nextHitTrace or 0) then return end
+    self.nextHitTrace=now+0.5
     local hit=(typeof(result)=='RaycastResult' or type(result)=='table') and result.Instance
     self:Log('trace','ray.result','Client raycast result; not proof of server damage',
         {Hit=pathOf(hit)},0.5)
 end
 function MeleeAura:Redirect(caller,origin,direction)
+    -- This path runs inside __namecall. Use only properties and Lua data prepared
+    -- by Step; Input, FindFirstChild, IsDescendantOf and visibility rays belong there.
     local function reject(reason) self:Count('ray.skip.'..reason); return nil end
-    if self:Blocked() then return reject(self:BlockReason()) end
-    if not self.target then return reject('no target') end
+    if not self.alive or not self.config.Enabled or not self.engine.focused
+        or (self.config.PauseMenu and self.library.open) then return reject('paused') end
+    local prepared=self.prepared
+    if not self.target or not prepared then return reject('no target') end
     if os.clock()>self.swingUntil then return reject('no swing window') end
     if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return reject('invalid vector') end
-    local character,_,root=rig(Players.LocalPlayer)
-    if not character or not self.tool or self.tool.Parent~=character or not self.tool.Enabled then return reject('tool/rig') end
+    local character,root=prepared.Character,prepared.Root
+    if Players.LocalPlayer.Character~=character or prepared.Humanoid.Health<=0
+        or not self.tool or self.tool~=prepared.Tool or self.tool.Parent~=character
+        or not self.tool.Enabled then return reject('tool/rig') end
     -- Only equipped weapon scripts or a named melee hitbox module may redirect.
     -- Short rays and nearby origins further exclude camera, visibility and gun rays.
     if direction.Magnitude>self.config.Range+6 or (origin-root.Position).Magnitude>self.config.Range+6 then return reject('ray bounds') end
-    if self.logger and self.logger.settings.CaptureRays then
+    local now=os.clock()
+    if self.logger and self.logger.settings.Enabled and self.logger.settings.CaptureRays
+        and now>=(self.nextCallerTrace or 0) then
+        self.nextCallerTrace=now+0.5
         self:Log('trace','ray.caller','Nearby game Raycast observed',
             {Caller=pathOf(caller),Length=string.format('%.2f',direction.Magnitude)},0.5)
     end
-    if not caller or (not caller:IsDescendantOf(self.tool)
+    if not caller or (not inside(caller,self.tool)
         and not caller.Name:lower():find('raycasthitbox',1,true)) then return reject('caller mismatch') end
-    self.ray.FilterDescendantsInstances={character}
-    local candidate=self:Candidate(self.target.Player,root)
-    if not candidate then return reject('target invalidated') end
+    local candidate=prepared.Target
+    if candidate~=self.target or candidate.Player.Parent~=Players
+        or candidate.Player.Character~=candidate.Character or candidate.Humanoid.Health<=0
+        or candidate.Humanoid.Health<self.config.MinHealth or candidate.Part.Parent~=candidate.Character
+        or (candidate.Part.Position-root.Position).Magnitude>self.config.Range then return reject('target invalidated') end
     local delta=candidate.Part.Position-origin
     if delta.Magnitude<0.001 or delta.Magnitude>self.config.Range+6 then return reject('target ray bounds') end
     return delta.Unit*math.max(direction.Magnitude,delta.Magnitude+0.1)
@@ -195,7 +226,7 @@ function MeleeAura:Step(now)
     local blocked=self:BlockReason()
     if blocked then self:Reset(); self:StatusTo(self.config.Enabled and ('Paused: '..blocked) or 'Disabled'); return end
     if not self:InstallHook() then self:Reset(); return end
-    local character,_,root=rig(Players.LocalPlayer)
+    local character,humanoid,root=rig(Players.LocalPlayer)
     local tool=character and character:FindFirstChildOfClass('Tool')
     if not character then self:Equip(nil); self:Reset(); self:StatusTo('Waiting for local character'); return end
     if not tool or not weapons[tool.Name] or not tool.Enabled then
@@ -214,6 +245,7 @@ function MeleeAura:Step(now)
                 or (candidate.Score==best.Score and player.UserId<best.Player.UserId)))) then best=candidate end
     end
     self.target=best
+    self.prepared=best and {Character=character,Humanoid=humanoid,Root=root,Tool=tool,Target=best} or nil
     self:StatusTo(best and ('Target: @'..best.Player.Name) or 'No target in range')
     if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
         self.lastSummary=now
@@ -232,8 +264,12 @@ function MeleeAura:Step(now)
 end
 function MeleeAura:Start()
     if self.connection then return end
+    local nextUpdate=0
     self.connection=RunService.Heartbeat:Connect(function()
-        local ok,problem=xpcall(function() self:Step(os.clock()) end,debug.traceback)
+        local now=os.clock()
+        if now<nextUpdate then return end
+        nextUpdate=now+1/30
+        local ok,problem=xpcall(function() self:Step(now) end,debug.traceback)
         if not ok then
             self:Reset(); self:StatusTo('Error in melee update')
             self:Log('error','heartbeat',tostring(problem),nil,1)

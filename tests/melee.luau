@@ -80,12 +80,14 @@ s.Enabled=false; unchanged('disable effective before next heartbeat'); s.Enabled
 nearHum.Health=0; unchanged('death effective before next heartbeat'); nearHum.Health=100
 nearChar.Children.Head.Position=vec(30,0,0); unchanged('out of reach before next heartbeat')
 nearChar.Children.Head.Position=vec(5,0,0)
-nearChar.Children.ForceField=Instance.new('ForceField'); unchanged('ForceField effective immediately')
+nearChar.Children.ForceField=Instance.new('ForceField'); aura:Step(0.6)
+assert(aura.target and aura.target.Player==far,'ForceField refreshes target selection on Heartbeat')
 nearChar.Children.ForceField=nil
+aura:Step(0.7)
 workspace.Hit={Instance=Instance.new('Part')}
 workspace.Hit.Instance.IsDescendantOf=function() return false end
-unchanged('new wall blocks ray immediately')
 aura:Step(1); assert(not aura.target,'walls block selection')
+unchanged('new wall invalidates prepared target on Heartbeat')
 s.WallCheck=false; aura:Step(1); assert(aura.target,'wall check configurable')
 s.WallCheck=true; workspace.Hit=nil
 s.TeamCheck=true; near.Team=players.LocalPlayer.Team

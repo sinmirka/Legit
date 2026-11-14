@@ -49,16 +49,18 @@ assert(app:DebugContext().EquippedTool=='Fists','report sees actual equipment be
 function tool:Activate() self.Activated:Fire() end
 local caller=Instance.new('LocalScript'); caller.Name='BladeScript'; caller.Parent=tool
 local intercepted,calls,failPrevious=nil,0,false
+local activeNamecall='Raycast'
 hookmetamethod=function(_,_,fn)
     intercepted=fn
     return function()
+        assert(activeNamecall=='Raycast','namecall method leaked into original Workspace dispatch: '..activeNamecall)
         calls+=1
         if failPrevious then error('original game failure') end
         return {Instance=target.Character.Children.Head},nil,'tail'
     end
 end
 checkcaller=function() return false end
-getnamecallmethod=function() return 'Raycast' end
+getnamecallmethod=function() return activeNamecall end
 getcallingscript=function() return caller end
 aura:Step(2)
 assert(aura.target and aura.Counters['activation.attempted']==1 and aura.Counters['swing.Activated']==1,'capture distinguishes activation attempt from event')
@@ -66,6 +68,26 @@ local hit,middle,tail=intercepted(workspace,MOCK.vec(0,0,0),MOCK.vec(1,0,0))
 assert(hit.Instance==target.Character.Children.Head and middle==nil and tail=='tail','diagnostic result observation preserves returns')
 assert(aura.Counters['ray.seen']==1 and aura.Counters['ray.redirected']==1,'seen and redirected counters')
 assert(app.Logger:Report():find('Melee.ray.result',1,true),'real client result recorded')
+-- Model executor method context being overwritten by a nested Instance namecall.
+-- A hook that queries Input/rigs/walls will cause the original dispatch to fail.
+local focused=MOCK.services.UserInputService.GetFocusedTextBox
+local candidate=aura.Candidate
+local getFullName=target.Character.Children.Head.GetFullName
+local function forbidden(name)
+    return function() activeNamecall=name; error('Instance call inside Raycast dispatcher: '..name) end
+end
+MOCK.services.UserInputService.GetFocusedTextBox=forbidden('GetFocusedTextBox')
+aura.Candidate=forbidden('Raycast')
+target.Character.Children.Head.GetFullName=forbidden('GetFullName')
+for _=1,1000 do
+    activeNamecall='Raycast'
+    local result=intercepted(workspace,MOCK.vec(0,0,0),MOCK.vec(1,0,0))
+    assert(result.Instance==target.Character.Children.Head and activeNamecall=='Raycast','stable dispatch under repeated external rays')
+end
+assert(not aura.Counters['hook.error'],'no per-ray Instance queries or errors')
+MOCK.services.UserInputService.GetFocusedTextBox=focused
+aura.Candidate=candidate
+target.Character.Children.Head.GetFullName=getFullName
 getcallingscript=function() error('caller introspection failed') end
 local before=calls
 assert(pcall(intercepted,workspace,MOCK.vec(0,0,0),MOCK.vec(1,0,0)) and calls==before+1,'caller errors fail through to original game method')
