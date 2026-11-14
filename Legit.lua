@@ -17609,7 +17609,7 @@ local MeleeAura={}
 MeleeAura.__index=MeleeAura
 local weapons={Fists=true,Knuckledusters=true,Nunchucks=true,Shiv=true,Bat=true,
     ['Metal-Bat']=true,Chainsaw=true,Balisong=true,Rambo=true,Shovel=true,
-    Sledgehammer=true,Katana=true,Wrench=true,['Fire Axe']=true}
+    Sledgehammer=true,Katana=true,Wrench=true,Golfclub=true,['Fire Axe']=true}
 local function rig(player)
     local character=player.Character
     if not character or not character:IsDescendantOf(workspace) then return end

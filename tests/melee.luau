@@ -113,6 +113,8 @@ MOCK.services.UserInputService.GetFocusedTextBox=getFocused
 tool.Name='Pistol'; aura:Step(11); assert(not aura.target and not aura.tool,'guns never activate aura')
 tool.Name='Fists'; tool.Enabled=false; aura:Step(12); assert(not aura.target,'disabled tool')
 tool.Enabled=true; aura:Step(13)
+tool.Name='Golfclub'; aura:Step(13.5)
+assert(aura.tool==tool and aura.target,'observed Criminality Golfclub is recognized as melee')
 character.Children.Humanoid.Health=0; aura:Step(14); assert(not aura.target,'local death')
 character.Children.Humanoid.Health=100
 -- Real UI/profile callbacks include all new settings and clear pending swing state.
