@@ -54,6 +54,9 @@ local function obsidian()
         self.ToggleKeybind=info.ToggleKeybind
         self.Toggled=true
         local raw={MainFrame=Instance.new('Frame')}; raw.MainFrame.Parent=self.ScreenGui; raw.MainFrame.Visible=true
+        function raw:SetSidebarWidth(width) self.SidebarWidth=width end
+        function raw:GetSidebarWidth() return self.SidebarWidth end
+        self.WindowInfo=info
         function raw:AddTab(name)
             local tab={Name=name}
             function tab:Show() ob.ActiveTab=self end

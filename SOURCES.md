@@ -9,7 +9,7 @@
 
 ## UI и запускаемые инструменты
 
-- [SirMallard/Iris](https://github.com/SirMallard/Iris) — текущая библиотека UI, MIT. Исходники версии `1043909bccf0c532811d60f915a1ce1ec28db867` и лицензия находятся в `vendor/Iris`; пакет для executor собирается локально без внешних зависимостей. Предыдущие Neverlose и Obsidian больше не загружаются.
+- [deividcomsono/Obsidian](https://github.com/deividcomsono/Obsidian) — текущая библиотека UI, MIT. Закреплённые исходники, Lucide и лицензии находятся в `vendor/Obsidian`; всё включено в автономную сборку. Iris и Neverlose сохранены в репозитории, но не загружаются.
 - [FusionWTF/DeX-Explorer](https://github.com/FusionWTF/DeX-Explorer) — внешний Dex Explorer, загружается только кнопкой в Misc.
 - [78n/SimpleSpy](https://github.com/78n/SimpleSpy) — внешний Remote Spy, загружается только кнопкой в Misc; URL в коде закреплён на конкретном коммите.
 

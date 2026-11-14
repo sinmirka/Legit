@@ -33,6 +33,17 @@ function UI.new(obsidian)
     end)
     local function connect(event,fn) table.insert(self.connections,event:Connect(fn)) end
     connect(Input.InputBegan,function(input)
+        if obsidian.IsPicking then return end
+        local key=self.toggleKey
+        if key and key~=Enum.KeyCode.Unknown and (input.KeyCode==key or input.UserInputType==key) then
+            local focused=Input:GetFocusedTextBox()
+            local nonTextKey=key==Enum.KeyCode.RightShift or key==Enum.KeyCode.LeftShift or key==Enum.KeyCode.Insert
+                or key.Name:match('^F%d+$')~=nil
+            if not focused or nonTextKey then
+                if focused and self.Gui and focused:IsDescendantOf(self.Gui) then focused:ReleaseFocus() end
+                self:SetOpen(not self.open)
+            end
+        end
         if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
             self.dragging=self:IsPointerOverUI()
         end
@@ -45,6 +56,9 @@ function UI.new(obsidian)
     return self
 end
 function UI:init() self.hasInit=true end
+function UI:Start() end
+function UI:SetScale(value) self.Obsidian:SetDPIScale(value) end
+function UI:SetMenuKey(key) self.toggleKey=typeof(key)=='EnumItem' and key or Enum.KeyCode.Unknown end
 function UI:SetOpen(value) self.Obsidian:Toggle(value) end
 function UI:SetTheme(theme)
     self.theme=theme; self.Obsidian.Scheme.AccentColor=theme.Accent
@@ -81,7 +95,11 @@ function UI:CreateWindow(data)
     local owner=self
     local raw=self.Obsidian:CreateWindow({Title=data.title,Footer='Legit | Obsidian',
         Center=true,AutoShow=true,Resizable=true,Size=data.size,ToggleKeybind=self.toggleKey,
-        ShowCustomCursor=false,NotifySide='Right',UnlockMouseWhileOpen=true})
+        ShowCustomCursor=false,NotifySide='Right',UnlockMouseWhileOpen=true,EnableCompacting=false})
+    -- The adapter owns processed-input and mouse hotkeys. Unknown would match mouse clicks upstream.
+    self.Obsidian.ToggleKeybind=nil
+    -- Use upstream layout API so the divider, title and content resize together.
+    raw:SetSidebarWidth(170)
     local window={tabs={},Raw=raw}
     self.Gui=self.Obsidian.ScreenGui
     self.StatusLabel=self.Obsidian:AddDraggableLabel('Legit | Aimbot: OFF')
