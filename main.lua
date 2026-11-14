@@ -201,6 +201,10 @@ local ok,message=xpcall(function()
             config[group][key]=value
             refreshTools(group)
             if group=='Melee' then melee:Reset() end
+            if group=='Melee' and key=='Enabled' and value then
+                local unavailable=melee:CapabilityProblem()
+                if unavailable then melee:StatusTo(unavailable); library:SendNotification(unavailable,7) end
+            end
             if group=='Aim' and (key=='Enabled' or key=='PauseMenu') then engine.toggled=false; engine:ResetTarget() end
         end})
         return remember(group,key,option,'toggle')

@@ -25,10 +25,11 @@ button('Start melee capture').callback()
 assert(app.Config.Debug.Enabled and app.Config.Debug.CaptureRays,'capture enables diagnostics only')
 assert(not app.Config.Melee.Enabled,'capture does not enable attacks')
 local aura=app.MeleeAura
-app.Config.Melee.Enabled=true; app.Library:SetOpen(false)
+app.Config.Melee.Enabled=true
 aura:Step(1)
-assert(aura.Status:find('Unavailable',1,true),'missing hook API is explicit')
+assert(aura.Status:find('hookmetamethod',1,true) and aura.Status:find('getnamecallmethod',1,true),'missing APIs named even while menu is open')
 assert(app.Logger:Report():find('Melee.capabilities',1,true),'missing APIs recorded')
+app.Library:SetOpen(false)
 local players=MOCK.players
 local function character(x)
     local char=Instance.new('Model'); char.Parent=workspace

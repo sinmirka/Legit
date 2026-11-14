@@ -17691,6 +17691,13 @@ function MeleeAura:Equip(tool)
         end)
     end
 end
+function MeleeAura:CapabilityProblem()
+    local missing={}
+    for _,name in ipairs({'hookmetamethod','getnamecallmethod','checkcaller','getcallingscript'}) do
+        if type(getfenv()[name])~='function' then table.insert(missing,name) end
+    end
+    if #missing>0 then return 'Unavailable: missing '..table.concat(missing,', ') end
+end
 function MeleeAura:InstallHook()
     if self.hook then return true end
     -- One dispatcher per executor session avoids hook chains on repeated loads.
@@ -17699,9 +17706,9 @@ function MeleeAura:InstallHook()
     -- Upgrade the old dispatcher once; leave its owner empty so it stays transparent.
     if state and state.Version~=2 then state.Owner=nil; state=nil end
     if not state then
-        if type(hookmetamethod)~='function' or type(getnamecallmethod)~='function'
-            or type(checkcaller)~='function' or type(getcallingscript)~='function' then
-            self:StatusTo('Unavailable: executor needs Raycast hook APIs')
+        local unavailable=self:CapabilityProblem()
+        if unavailable then
+            self:StatusTo(unavailable)
             self:Log('error','capabilities',self.Status,nil,5)
             return false
         end
@@ -17782,6 +17789,12 @@ function MeleeAura:Redirect(caller,origin,direction)
     return delta.Unit*math.max(direction.Magnitude,delta.Magnitude+0.1)
 end
 function MeleeAura:Step(now)
+    local unavailable=self.config.Enabled and self:CapabilityProblem()
+    if unavailable then
+        self:Reset(); self:StatusTo(unavailable)
+        self:Log('error','capabilities',unavailable,nil,5)
+        return
+    end
     local blocked=self:BlockReason()
     if blocked then self:Reset(); self:StatusTo(self.config.Enabled and ('Paused: '..blocked) or 'Disabled'); return end
     if not self:InstallHook() then self:Reset(); return end
@@ -18283,6 +18296,10 @@ local ok,message=xpcall(function()
             config[group][key]=value
             refreshTools(group)
             if group=='Melee' then melee:Reset() end
+            if group=='Melee' and key=='Enabled' and value then
+                local unavailable=melee:CapabilityProblem()
+                if unavailable then melee:StatusTo(unavailable); library:SendNotification(unavailable,7) end
+            end
             if group=='Aim' and (key=='Enabled' or key=='PauseMenu') then engine.toggled=false; engine:ResetTarget() end
         end})
         return remember(group,key,option,'toggle')
