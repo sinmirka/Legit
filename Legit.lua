@@ -17047,11 +17047,18 @@ function Engine:TrackFriend(other)
     if other == self.player then return end
     task.spawn(function()
         local ok, result = pcall(self.player.IsFriendsWith, self.player, other.UserId)
-        if self.alive and other.Parent == Players then self.friends[other] = ok and result or false end
+        -- Keep unknown/error distinct from a confirmed non-friend.
+        if self.alive and other.Parent==Players then
+            if ok then self.friends[other]=result else self.friends[other]=nil end
+        end
     end)
+end
+function Engine:MeleeFriendProtected(other)
+    return self.playerModes[other.UserId]=='Friend' or self.friends[other]~=false
 end
 function Engine:Allowed(other, settings)
     if other == self.player or other.Parent ~= Players then return false end
+    if settings==self.config.Melee and self:MeleeFriendProtected(other) then return false end
     if self.playerModes[other.UserId]=='Friend' and (settings==self.config.Aim or settings==self.config.Melee or settings==self.config.Silent) then return false end
     if settings.TeamCheck and sameTeam(self.player, other) then return false end
     if settings.SkipFriends and self.friends[other] then return false end
@@ -17871,6 +17878,7 @@ function MeleeAura:Redirect(caller,origin,direction)
     if not caller or (not inside(caller,self.tool)
         and not caller.Name:lower():find('raycasthitbox',1,true)) then return reject('caller mismatch') end
     local candidate=prepared.Target
+    if not self.engine:Allowed(candidate.Player,self.config) then return reject('friend/team changed') end
     if self.config.SkipDowned and candidate.Humanoid.Health<=15 then
         if candidate.Downed or candidate.Humanoid.PlatformStand then return reject('downed/ragdoll') end
         for _,flag in ipairs(candidate.DownedFlags or {}) do
@@ -18804,7 +18812,7 @@ local config={
     Labels={Enabled=true,Names=true,NameMode='Both',Health=true,Distance=true,Tool=false,Team=false,
         Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
-        Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=false,
+        Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
     Silent={Enabled=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
@@ -19061,7 +19069,7 @@ local ok,message=xpcall(function()
     left:AddText({text='Equip melee; disable Auto attack for manual swings'})
     left:AddButton({text='Show melee status',callback=function() library:SendNotification(melee.Status,5) end})
     toggle(right,'Skip teammates','Melee','TeamCheck')
-    toggle(right,'Skip Roblox friends','Melee','SkipFriends')
+    right:AddText({text='Roblox friends and Players > Friend are always excluded as targets.'})
     toggle(right,'Skip ForceField','Melee','SkipForceField')
     toggle(right,'Skip downed at 15 HP or below','Melee','SkipDowned')
     toggle(right,'Check walls','Melee','WallCheck')

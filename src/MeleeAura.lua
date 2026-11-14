@@ -268,6 +268,7 @@ function MeleeAura:Redirect(caller,origin,direction)
     if not caller or (not inside(caller,self.tool)
         and not caller.Name:lower():find('raycasthitbox',1,true)) then return reject('caller mismatch') end
     local candidate=prepared.Target
+    if not self.engine:Allowed(candidate.Player,self.config) then return reject('friend/team changed') end
     if self.config.SkipDowned and candidate.Humanoid.Health<=15 then
         if candidate.Downed or candidate.Humanoid.PlatformStand then return reject('downed/ragdoll') end
         for _,flag in ipairs(candidate.DownedFlags or {}) do

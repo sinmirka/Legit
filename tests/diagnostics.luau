@@ -43,6 +43,7 @@ end
 players.LocalPlayer.Character=character(0)
 local target={UserId=2,Name='Target',DisplayName='Target',Parent=players,Neutral=true,Character=character(5)}
 players.list={players.LocalPlayer,target}
+app.Engine.friends[target]=false
 local tool=Instance.new('Tool'); tool.Parent=players.LocalPlayer.Character; tool.Name='Fists'; tool.Enabled=true
 players.LocalPlayer.Character.Children.Tool=tool
 assert(app:DebugContext().EquippedTool=='Fists','report sees actual equipment before a successful preflight')

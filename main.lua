@@ -122,7 +122,7 @@ local config={
     Labels={Enabled=true,Names=true,NameMode='Both',Health=true,Distance=true,Tool=false,Team=false,
         Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
-        Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=false,
+        Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
     Silent={Enabled=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
@@ -379,7 +379,7 @@ local ok,message=xpcall(function()
     left:AddText({text='Equip melee; disable Auto attack for manual swings'})
     left:AddButton({text='Show melee status',callback=function() library:SendNotification(melee.Status,5) end})
     toggle(right,'Skip teammates','Melee','TeamCheck')
-    toggle(right,'Skip Roblox friends','Melee','SkipFriends')
+    right:AddText({text='Roblox friends and Players > Friend are always excluded as targets.'})
     toggle(right,'Skip ForceField','Melee','SkipForceField')
     toggle(right,'Skip downed at 15 HP or below','Melee','SkipDowned')
     toggle(right,'Check walls','Melee','WallCheck')

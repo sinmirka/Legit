@@ -17,6 +17,7 @@ players.LocalPlayer.Character=character
 local near,nearChar,nearHum=player(2,5)
 local far,farChar,farHum=player(3,8)
 players.list={players.LocalPlayer,far,near}
+app.Engine.friends[near]=false; app.Engine.friends[far]=false
 local tool=Instance.new('Tool'); tool.Name='Fists'; tool.Parent=character; tool.Enabled=true
 character.Children.Tool=tool
 local attacks=0
@@ -94,7 +95,18 @@ s.TeamCheck=true; near.Team=players.LocalPlayer.Team
 aura:Step(2); assert(aura.target.Player==far,'team filter')
 s.TeamCheck=false; s.SkipFriends=true; app.Engine.friends[near]=true
 aura:Step(3); assert(aura.target.Player==far,'friend filter')
-s.SkipFriends=false; s.Priority='Lowest health'; farHum.Health=20
+s.SkipFriends=false; aura:Step(3.1)
+assert(aura.target.Player==far,'legacy SkipFriends=false cannot permit friendly targeting')
+local friendlyAttacks=attacks; s.AutoAttack=true; aura.nextAttack=0; aura:Step(3.2)
+assert(attacks==friendlyAttacks+1 and aura.target.Player==far,'auto attack continues against enemy near a friend')
+app.Engine.friends[near]=false; aura.nextAttack=0; aura:Step(3.3); tool.Activated:Fire()
+app.Engine.playerModes[near.UserId]='Friend'
+unchanged('new Friend priority immediately cancels cached redirect')
+app.Engine.playerModes[near.UserId]=nil
+local beforePending=attacks
+app.Engine.friends[near]=nil; aura.nextAttack=0; aura:Step(3.4)
+assert(aura.target.Player==far and attacks==beforePending+1,'pending friend lookup excludes that player while auto attack continues')
+app.Engine.friends[near]=false; s.Priority='Lowest health'; farHum.Health=20
 aura:Step(4); assert(aura.target.Player==far,'health priority')
 s.MinHealth=21; aura:Step(5); assert(aura.target.Player==near,'minimum health')
 s.Part='UpperTorso'; aura:Step(6); assert(aura.target.Part==nearChar.Children.Torso,'R6 torso fallback')

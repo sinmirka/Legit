@@ -76,11 +76,18 @@ function Engine:TrackFriend(other)
     if other == self.player then return end
     task.spawn(function()
         local ok, result = pcall(self.player.IsFriendsWith, self.player, other.UserId)
-        if self.alive and other.Parent == Players then self.friends[other] = ok and result or false end
+        -- Keep unknown/error distinct from a confirmed non-friend.
+        if self.alive and other.Parent==Players then
+            if ok then self.friends[other]=result else self.friends[other]=nil end
+        end
     end)
+end
+function Engine:MeleeFriendProtected(other)
+    return self.playerModes[other.UserId]=='Friend' or self.friends[other]~=false
 end
 function Engine:Allowed(other, settings)
     if other == self.player or other.Parent ~= Players then return false end
+    if settings==self.config.Melee and self:MeleeFriendProtected(other) then return false end
     if self.playerModes[other.UserId]=='Friend' and (settings==self.config.Aim or settings==self.config.Melee or settings==self.config.Silent) then return false end
     if settings.TeamCheck and sameTeam(self.player, other) then return false end
     if settings.SkipFriends and self.friends[other] then return false end
