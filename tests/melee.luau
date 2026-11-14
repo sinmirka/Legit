@@ -135,6 +135,38 @@ tool.Children.Melee=Instance.new('Folder')
 assert(not aura:IsMeleeTool(tool),'non-module named Melee is not enough')
 tool.Children.Melee=nil; tool.Children.AnimsFolder=nil; tool.Children.WeaponHandle=nil
 tool.Name='Fists'
+assert(s.SkipDowned,'downed filter enabled by default')
+local replicated=MOCK.services.ReplicatedStorage
+local statsRoot=Instance.new('Folder'); statsRoot.Parent=replicated; replicated.Children.CharStats=statsRoot
+local function downedFlag(player)
+    local stats=Instance.new('Folder'); stats.Parent=statsRoot; statsRoot.Children[player.Name]=stats
+    local flag=Instance.new('BoolValue'); flag.Parent=stats; flag.Value=false; stats.Children.Downed=flag
+    return flag
+end
+local nearDowned,farDowned=downedFlag(near),downedFlag(far)
+aura:Step(13.7); tool.Activated:Fire()
+nearDowned.Value=true
+unchanged('cached Downed BoolValue blocks a ray immediately, without Instance calls')
+aura:Step(13.8); assert(aura.target and aura.target.Player==far,'downed nearest target skipped')
+farDowned.Value=true; local beforeDowned=attacks; s.AutoAttack=true
+aura:Step(13.9)
+assert(not aura.target and attacks==beforeDowned,'no auto attack when all targets are downed')
+nearDowned.Value=false; farDowned.Value=false; s.AutoAttack=false
+nearHum.State=Enum.HumanoidStateType.Ragdoll
+aura:Step(13.91); assert(aura.target.Player==far,'ragdoll skipped')
+nearHum.State=Enum.HumanoidStateType.FallingDown
+aura:Step(13.92); assert(aura.target.Player==far,'falling-down state skipped')
+nearHum.State=Enum.HumanoidStateType.Running; nearHum.PlatformStand=true
+aura:Step(13.93); assert(aura.target.Player==far,'platform-standing target skipped')
+nearHum.PlatformStand=false; nearChar.Attributes={Downed=true}
+aura:Step(13.94); assert(aura.target.Player==far,'character Downed attribute skipped')
+nearChar.Attributes.Downed=false; nearDowned.Value=true; s.SkipDowned=false
+aura:Step(13.95); assert(aura.target.Player==near,'filter may be explicitly disabled')
+s.SkipDowned=true; nearDowned.Value=false
+nearHum.Health=5; aura:Step(13.96)
+assert(aura.target.Player==near,'low health alone is not treated as downed')
+nearHum.Health=100; statsRoot.Children[near.Name]=nil
+aura:Step(13.97); assert(aura.target.Player==near,'missing game stats do not crash or exclude healthy rigs')
 character.Children.Humanoid.Health=0; aura:Step(14); assert(not aura.target,'local death')
 character.Children.Humanoid.Health=100
 -- Real UI/profile callbacks include all new settings and clear pending swing state.
@@ -145,12 +177,15 @@ local function button(text)
 end
 local options=app.Library.options
 options.Melee_Enabled:SetState(true); options.Melee_Range:SetValue(15)
+options.Melee_SkipDowned:SetState(false)
 options.Melee_Part:Select('UpperTorso'); button('Save profile').callback()
 options.Melee_Range:SetValue(5); options.Melee_Enabled:SetState(false)
 button('Load profile').callback()
 assert(s.Range==15 and s.Enabled and s.Part=='UpperTorso' and aura.swingUntil==0,'melee profile roundtrip')
+assert(not s.SkipDowned,'downed preference saved in profile')
 button('Reset defaults').callback()
 assert(not s.Enabled and s.Range==10 and s.AutoAttack,'melee defaults')
+assert(s.SkipDowned,'reset restores downed protection')
 s.Enabled=true; aura:Step(15); local activation=aura.activation; local heartbeat=aura.connection
 app:Unload()
 assert(not activation.Connected and not heartbeat.Connected and not aura.target,'disconnect owned signals')

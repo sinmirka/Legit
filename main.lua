@@ -123,7 +123,7 @@ local config={
         Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=false,
-        SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true},
+        SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
         TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
@@ -142,7 +142,7 @@ function app:DebugContext()
     local equipped=character and character:FindFirstChildOfClass('Tool')
     local data={AimStatus=engine and engine.Status or 'not started',MeleeStatus=melee and melee.Status or 'not started',
         MeleeEnabled=config.Melee.Enabled,AutoAttack=config.Melee.AutoAttack,Range=config.Melee.Range,
-        Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,
+        Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,SkipDowned=config.Melee.SkipDowned,
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     return data
@@ -358,6 +358,7 @@ local ok,message=xpcall(function()
     toggle(right,'Skip teammates','Melee','TeamCheck')
     toggle(right,'Skip Roblox friends','Melee','SkipFriends')
     toggle(right,'Skip ForceField','Melee','SkipForceField')
+    toggle(right,'Skip downed / ragdolled','Melee','SkipDowned')
     toggle(right,'Check walls','Melee','WallCheck')
     slider(right,'Minimum target HP','Melee','MinHealth',1,100,1)
     right:AddText({text='Requires executor Raycast hook APIs'})

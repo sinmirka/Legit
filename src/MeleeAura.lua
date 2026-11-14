@@ -2,6 +2,7 @@
 local Players=game:GetService('Players')
 local RunService=game:GetService('RunService')
 local Input=game:GetService('UserInputService')
+local ReplicatedStorage=game:GetService('ReplicatedStorage')
 local MeleeAura={}
 MeleeAura.__index=MeleeAura
 -- Criminality Wiki Category:Melees, checked 2026-11-14; includes event/legacy entries.
@@ -75,12 +76,39 @@ end
 function MeleeAura:Blocked()
     return self:BlockReason()~=nil
 end
+function MeleeAura:DownedState(player,character,humanoid)
+    -- Resolve game markers in Step only; the hook later reads cached BoolValue.Value.
+    local flags={}
+    local downed=false
+    local statsRoot=ReplicatedStorage:FindFirstChild('CharStats')
+    local stats=statsRoot and statsRoot:FindFirstChild(player.Name)
+    local containers={character,humanoid}
+    if stats then table.insert(containers,stats) end
+    for _,container in ipairs(containers) do
+        local flag=container:FindFirstChild('Downed')
+        if flag and flag:IsA('BoolValue') then
+            table.insert(flags,flag)
+            if flag.Value==true then downed=true end
+        end
+        if container:GetAttribute('Downed')==true then downed=true end
+    end
+    local state=humanoid:GetState()
+    if humanoid.PlatformStand or state==Enum.HumanoidStateType.Ragdoll
+        or state==Enum.HumanoidStateType.FallingDown then downed=true end
+    return downed,flags
+end
 function MeleeAura:Candidate(player,root)
     local s=self.config
     if player==Players.LocalPlayer then return nil,'self' end
     if not self.engine:Allowed(player,s) then return nil,'team/friend/priority' end
     local character,humanoid,targetRoot=rig(player)
     if not character then return nil,'rig/dead' end
+    local flags
+    if s.SkipDowned then
+        local downed
+        downed,flags=self:DownedState(player,character,humanoid)
+        if downed then return nil,'downed/ragdoll' end
+    end
     if humanoid.Health<s.MinHealth then return nil,'minimum HP' end
     if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return nil,'ForceField' end
     local part=character:FindFirstChild(s.Part)
@@ -92,7 +120,7 @@ function MeleeAura:Candidate(player,root)
         local hit=workspace:Raycast(root.Position,delta,self.ray)
         if hit and not hit.Instance:IsDescendantOf(character) then return nil,'wall' end
     end
-    return {Player=player,Character=character,Humanoid=humanoid,Part=part,
+    return {Player=player,Character=character,Humanoid=humanoid,Part=part,DownedFlags=flags,
         Score=s.Priority=='Lowest health' and humanoid.Health or delta.Magnitude}
 end
 function MeleeAura:Equip(tool)
@@ -230,6 +258,12 @@ function MeleeAura:Redirect(caller,origin,direction)
     if not caller or (not inside(caller,self.tool)
         and not caller.Name:lower():find('raycasthitbox',1,true)) then return reject('caller mismatch') end
     local candidate=prepared.Target
+    if self.config.SkipDowned then
+        if candidate.Humanoid.PlatformStand then return reject('downed/ragdoll') end
+        for _,flag in ipairs(candidate.DownedFlags or {}) do
+            if flag.Value==true then return reject('downed/ragdoll') end
+        end
+    end
     if candidate~=self.target or candidate.Player.Parent~=Players
         or candidate.Player.Character~=candidate.Character or candidate.Humanoid.Health<=0
         or candidate.Humanoid.Health<self.config.MinHealth or candidate.Part.Parent~=candidate.Character

@@ -74,6 +74,8 @@ function object:FindFirstChildOfClass(class)
     for _,child in pairs(self.Children) do if child.ClassName==class then return child end end
 end
 function object:IsDescendantOf(parent) return parent==workspace or parent==self.Parent end
+function object:GetAttribute(name) return self.Attributes and self.Attributes[name] end
+function object:GetState() return self.State or Enum.HumanoidStateType.Running end
 Instance={new=function(class) return setmetatable({ClassName=class,Children={},Destroying=signal(),Activated=signal(),FocusLost=signal(),
     InputBegan=signal(),InputChanged=signal(),InputEnded=signal(),AbsolutePosition=vec(200,100),AbsoluteSize=vec(690,620),__type='Instance'},object) end}
 RaycastParams={new=function() return {} end}
@@ -116,6 +118,7 @@ function services.UserInputService:IsKeyDown(key) return self.Down[key]==true en
 function services.UserInputService:IsMouseButtonPressed(key) return self.Down[key]==true end
 services.ContextActionService={BindAction=function() end,UnbindAction=function() end}
 services.CoreGui={}
+services.ReplicatedStorage=Instance.new('ReplicatedStorage')
 services.Lighting=Instance.new('Lighting')
 services.Lighting.ClockTime=14
 services.Lighting.ExposureCompensation=0
