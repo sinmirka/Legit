@@ -1,7 +1,7 @@
 local app=assert(loadstring(SOURCES['main.lua'],'@main.lua'))()
 assert(app.Alive and app.Library.hasInit,'startup')
 assert(#app.Library.windows==1,'one Player Tools window')
-assert(#app.Library.windows[1].tabs==7,'seven settings tabs')
+assert(#app.Library.windows[1].tabs==8,'eight settings tabs')
 local count=0
 for _ in pairs(app.Library.options) do count+=1 end
 assert(count>=90,'expected extensive settings: '..count)

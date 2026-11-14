@@ -111,6 +111,9 @@ local config={
     },
     Labels={Enabled=true,Names=true,NameMode='Both',Health=true,Distance=true,Tool=false,Team=false,
         Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
+    Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
+        Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=false,
+        SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
         TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
@@ -122,7 +125,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine
+local engine,melee
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:Unload()
     if not self.Alive then return end
@@ -132,6 +135,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if melee then clean('melee',function() melee:Destroy() end) end
     if engine then clean('engine',function() engine:Destroy() end) end
     clean('UI',function() library:Unload() end)
     if renderer then clean('renderer',function() renderer:Destroy() end) end
@@ -142,7 +146,10 @@ local ok,message=xpcall(function()
     local Engine=remote('src/Engine.lua')()
     engine=Engine.new(config,library,drawingAPI)
     app.Engine=engine
+    melee=remote('src/MeleeAura.lua')().new(config.Melee,engine,library)
+    app.MeleeAura=melee
     library.unloaded:Connect(function()
+        if melee then pcall(melee.Destroy,melee) end
         if engine then pcall(engine.Destroy,engine) end
         if renderer then renderer:Destroy() end
         app.Alive=false
@@ -163,17 +170,22 @@ local ok,message=xpcall(function()
     local function toggle(section,label,group,key)
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
+            if group=='Melee' then melee:Reset() end
             if group=='Aim' and (key=='Enabled' or key=='PauseMenu') then engine.toggled=false; engine:ResetTarget() end
         end})
         return remember(group,key,option,'toggle')
     end
     local function slider(section,label,group,key,min,max,step,suffix)
         return remember(group,key,section:AddSlider({text=label,flag=flag(group,key),value=config[group][key],min=min,max=max,
-            increment=step or 1,suffix=suffix or '',callback=function(value) config[group][key]=value end}),'slider')
+            increment=step or 1,suffix=suffix or '',callback=function(value)
+                config[group][key]=value
+                if group=='Melee' then melee:Reset() end
+            end}),'slider')
     end
     local function select(section,label,group,key,choices)
         local option=section:AddList({text=label,flag=flag(group,key),selected=config[group][key],values=choices,callback=function(value)
             config[group][key]=value
+            if group=='Melee' then melee:Reset() end
             if group=='Aim' then engine.held=false; engine.toggled=false; engine:ResetTarget() end
         end})
         option:Select(config[group][key],true)
@@ -287,6 +299,24 @@ local ok,message=xpcall(function()
     toggle(right,'Text outline','Labels','TextOutline')
     slider(right,'Text opacity','Labels','Opacity',0,1,0.01)
     slider(right,'Text offset','Labels','Offset',0,30,1,' px')
+    left,right=sections('Melee','Criminality / Raycast hook','Target filters')
+    toggle(left,'Enable melee aura','Melee','Enabled')
+    toggle(left,'Auto attack','Melee','AutoAttack')
+    slider(left,'Reach','Melee','Range',1,20,0.5,' studs')
+    slider(left,'Attack interval','Melee','Interval',0.1,3,0.05,' s')
+    slider(left,'Raycast swing window','Melee','SwingWindow',0.05,1,0.05,' s')
+    select(left,'Hit part','Melee','Part',{'Head','UpperTorso','HumanoidRootPart'})
+    select(left,'Target priority','Melee','Priority',{'Distance','Lowest health'})
+    toggle(left,'Pause while menu is open','Melee','PauseMenu')
+    left:AddText({text='Equip melee; disable Auto attack for manual swings'})
+    left:AddButton({text='Show melee status',callback=function() library:SendNotification(melee.Status,5) end})
+    toggle(right,'Skip teammates','Melee','TeamCheck')
+    toggle(right,'Skip Roblox friends','Melee','SkipFriends')
+    toggle(right,'Skip ForceField','Melee','SkipForceField')
+    toggle(right,'Check walls','Melee','WallCheck')
+    slider(right,'Minimum target HP','Melee','MinHealth',1,100,1)
+    right:AddText({text='Requires executor Raycast hook APIs'})
+    right:AddText({text='Game weapon cooldowns still apply'})
     left,right=sections('Profiles','Local profiles','Interface')
     local profileName='default'
     left:AddBox({text='Profile name',flag='profile_name',input=profileName,callback=function(value) profileName=value end})
@@ -366,6 +396,7 @@ local ok,message=xpcall(function()
         if not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end
     end)
     engine:Start()
+    melee:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end

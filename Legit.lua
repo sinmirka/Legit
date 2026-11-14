@@ -989,6 +989,167 @@ function GuiDrawing.new(parent)
 end
 return GuiDrawing
 ]====]
+files["src/MeleeAura.lua"]=[====[-- Redirect real melee hitbox rays; the game still performs hit registration.
+local Players=game:GetService('Players')
+local RunService=game:GetService('RunService')
+local Input=game:GetService('UserInputService')
+local MeleeAura={}
+MeleeAura.__index=MeleeAura
+local weapons={Fists=true,Knuckledusters=true,Nunchucks=true,Shiv=true,Bat=true,
+    ['Metal-Bat']=true,Chainsaw=true,Balisong=true,Rambo=true,Shovel=true,
+    Sledgehammer=true,Katana=true,Wrench=true,['Fire Axe']=true}
+local function rig(player)
+    local character=player.Character
+    if not character or not character:IsDescendantOf(workspace) then return end
+    local humanoid=character:FindFirstChildOfClass('Humanoid')
+    local root=character:FindFirstChild('HumanoidRootPart')
+    if humanoid and humanoid.Health>0 and root and root:IsA('BasePart') then return character,humanoid,root end
+end
+local function finite(vector)
+    if typeof(vector)~='Vector3' then return false end
+    for _,n in ipairs({vector.X,vector.Y,vector.Z}) do
+        if n~=n or math.abs(n)==math.huge then return false end
+    end
+    return true
+end
+function MeleeAura.new(config,engine,library)
+    local self=setmetatable({config=config,engine=engine,library=library,alive=true,
+        nextAttack=0,swingUntil=0,Status='Disabled'},MeleeAura)
+    self.ray=RaycastParams.new()
+    self.ray.FilterType=Enum.RaycastFilterType.Exclude
+    self.ray.IgnoreWater=true
+    return self
+end
+function MeleeAura:Reset()
+    self.target,self.swingUntil=nil,0
+end
+function MeleeAura:Blocked()
+    return not self.alive or not self.config.Enabled or not self.engine.focused
+        or Input:GetFocusedTextBox()~=nil or self.library:IsInteracting()
+        or (self.config.PauseMenu and self.library.open)
+end
+function MeleeAura:Candidate(player,root)
+    local s=self.config
+    if not self.engine:Allowed(player,s) then return end
+    local character,humanoid,targetRoot=rig(player)
+    if not character or humanoid.Health<s.MinHealth then return end
+    if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return end
+    local part=character:FindFirstChild(s.Part)
+    if not part and s.Part=='UpperTorso' then part=character:FindFirstChild('Torso') end
+    if not part or not part:IsA('BasePart') then return end
+    local delta=part.Position-root.Position
+    if delta.Magnitude>s.Range or delta.Magnitude<0.001 then return end
+    if s.WallCheck then
+        local hit=workspace:Raycast(root.Position,delta,self.ray)
+        if hit and not hit.Instance:IsDescendantOf(character) then return end
+    end
+    return {Player=player,Part=part,Score=s.Priority=='Lowest health' and humanoid.Health or delta.Magnitude}
+end
+function MeleeAura:Equip(tool)
+    if self.tool==tool then return end
+    if self.activation then self.activation:Disconnect(); self.activation=nil end
+    self:Reset()
+    self.tool,self.nextAttack=tool,0
+    if tool then
+        self.activation=tool.Activated:Connect(function()
+            if not self:Blocked() then self.swingUntil=os.clock()+self.config.SwingWindow end
+        end)
+    end
+end
+function MeleeAura:InstallHook()
+    if self.hook then return true end
+    -- One dispatcher per executor session avoids hook chains on repeated loads.
+    local env=getgenv()
+    local state=env.LegitMeleeRaycastHook
+    if not state then
+        if type(hookmetamethod)~='function' or type(getnamecallmethod)~='function'
+            or type(checkcaller)~='function' or type(getcallingscript)~='function' then
+            self.Status='Unavailable: executor needs Raycast hook APIs'
+            return false
+        end
+        state={}
+        local previous
+        local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
+        local ok,result=pcall(function()
+            return hookmetamethod(game,'__namecall',wrap(function(receiver,...)
+                local owner=state.Owner
+                if owner and getnamecallmethod()=='Raycast' and receiver==workspace and not checkcaller() then
+                    local args=table.pack(...)
+                    local succeeded,direction=pcall(owner.Redirect,owner,getcallingscript(),args[1],args[2])
+                    if succeeded and direction then
+                        args[2]=direction
+                        return previous(receiver,table.unpack(args,1,args.n))
+                    end
+                end
+                return previous(receiver,...)
+            end))
+        end)
+        if not ok or type(result)~='function' then
+            self.Status='Unavailable: Raycast hook installation failed'
+            return false
+        end
+        previous=result
+        env.LegitMeleeRaycastHook=state
+    end
+    state.Owner=self
+    self.hook=state
+    return true
+end
+function MeleeAura:Redirect(caller,origin,direction)
+    if self:Blocked() or not self.target or os.clock()>self.swingUntil then return end
+    if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return end
+    local character,_,root=rig(Players.LocalPlayer)
+    if not character or not self.tool or self.tool.Parent~=character or not self.tool.Enabled then return end
+    -- Only equipped weapon scripts or a named melee hitbox module may redirect.
+    -- Short rays and nearby origins further exclude camera, visibility and gun rays.
+    if not caller or (not caller:IsDescendantOf(self.tool)
+        and not caller.Name:lower():find('raycasthitbox',1,true)) then return end
+    if direction.Magnitude>self.config.Range+6 or (origin-root.Position).Magnitude>self.config.Range+6 then return end
+    self.ray.FilterDescendantsInstances={character}
+    local candidate=self:Candidate(self.target.Player,root)
+    if not candidate then return end
+    local delta=candidate.Part.Position-origin
+    if delta.Magnitude<0.001 or delta.Magnitude>self.config.Range+6 then return end
+    return delta.Unit*math.max(direction.Magnitude,delta.Magnitude+0.1)
+end
+function MeleeAura:Step(now)
+    if self:Blocked() then self:Reset(); self.Status=self.config.Enabled and 'Paused' or 'Disabled'; return end
+    if not self:InstallHook() then self:Reset(); return end
+    local character,_,root=rig(Players.LocalPlayer)
+    local tool=character and character:FindFirstChildOfClass('Tool')
+    if not tool or not weapons[tool.Name] or not tool.Enabled then
+        self:Equip(nil); self:Reset(); self.Status='Equip a supported melee tool'; return
+    end
+    self:Equip(tool)
+    self.ray.FilterDescendantsInstances={character}
+    local best
+    for _,player in ipairs(Players:GetPlayers()) do
+        local candidate=self:Candidate(player,root)
+        if candidate and (not best or candidate.Score<best.Score
+            or (candidate.Score==best.Score and player.UserId<best.Player.UserId)) then best=candidate end
+    end
+    self.target=best
+    self.Status=best and ('Target: @'..best.Player.Name) or 'No target in range'
+    if best and self.config.AutoAttack and now>=self.nextAttack then
+        self.nextAttack=now+self.config.Interval
+        self.swingUntil=now+self.config.SwingWindow
+        local ok=pcall(function() tool:Activate() end)
+        if not ok then self:Reset(); self.Status='Tool activation failed' end
+    end
+end
+function MeleeAura:Start()
+    if self.connection then return end
+    self.connection=RunService.Heartbeat:Connect(function() self:Step(os.clock()) end)
+end
+function MeleeAura:Destroy()
+    self.alive=false
+    self:Equip(nil); self:Reset()
+    if self.connection then self.connection:Disconnect(); self.connection=nil end
+    -- Keep a transparent dispatcher: restoring __namecall could erase another script's hook.
+    if self.hook and self.hook.Owner==self then self.hook.Owner=nil end
+end
+return MeleeAura
+]====]
 files["main.lua"]=[====[-- Legit | Player Tools UI. Entry point for the README loadstring.
 local bundledFiles=...
 local BASE='https://raw.githubusercontent.com/sinmirka/Legit/main/'
@@ -1102,6 +1263,9 @@ local config={
     },
     Labels={Enabled=true,Names=true,NameMode='Both',Health=true,Distance=true,Tool=false,Team=false,
         Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
+    Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
+        Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=false,
+        SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
         TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
@@ -1113,7 +1277,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine
+local engine,melee
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:Unload()
     if not self.Alive then return end
@@ -1123,6 +1287,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if melee then clean('melee',function() melee:Destroy() end) end
     if engine then clean('engine',function() engine:Destroy() end) end
     clean('UI',function() library:Unload() end)
     if renderer then clean('renderer',function() renderer:Destroy() end) end
@@ -1133,7 +1298,10 @@ local ok,message=xpcall(function()
     local Engine=remote('src/Engine.lua')()
     engine=Engine.new(config,library,drawingAPI)
     app.Engine=engine
+    melee=remote('src/MeleeAura.lua')().new(config.Melee,engine,library)
+    app.MeleeAura=melee
     library.unloaded:Connect(function()
+        if melee then pcall(melee.Destroy,melee) end
         if engine then pcall(engine.Destroy,engine) end
         if renderer then renderer:Destroy() end
         app.Alive=false
@@ -1154,17 +1322,22 @@ local ok,message=xpcall(function()
     local function toggle(section,label,group,key)
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
+            if group=='Melee' then melee:Reset() end
             if group=='Aim' and (key=='Enabled' or key=='PauseMenu') then engine.toggled=false; engine:ResetTarget() end
         end})
         return remember(group,key,option,'toggle')
     end
     local function slider(section,label,group,key,min,max,step,suffix)
         return remember(group,key,section:AddSlider({text=label,flag=flag(group,key),value=config[group][key],min=min,max=max,
-            increment=step or 1,suffix=suffix or '',callback=function(value) config[group][key]=value end}),'slider')
+            increment=step or 1,suffix=suffix or '',callback=function(value)
+                config[group][key]=value
+                if group=='Melee' then melee:Reset() end
+            end}),'slider')
     end
     local function select(section,label,group,key,choices)
         local option=section:AddList({text=label,flag=flag(group,key),selected=config[group][key],values=choices,callback=function(value)
             config[group][key]=value
+            if group=='Melee' then melee:Reset() end
             if group=='Aim' then engine.held=false; engine.toggled=false; engine:ResetTarget() end
         end})
         option:Select(config[group][key],true)
@@ -1278,6 +1451,24 @@ local ok,message=xpcall(function()
     toggle(right,'Text outline','Labels','TextOutline')
     slider(right,'Text opacity','Labels','Opacity',0,1,0.01)
     slider(right,'Text offset','Labels','Offset',0,30,1,' px')
+    left,right=sections('Melee','Criminality / Raycast hook','Target filters')
+    toggle(left,'Enable melee aura','Melee','Enabled')
+    toggle(left,'Auto attack','Melee','AutoAttack')
+    slider(left,'Reach','Melee','Range',1,20,0.5,' studs')
+    slider(left,'Attack interval','Melee','Interval',0.1,3,0.05,' s')
+    slider(left,'Raycast swing window','Melee','SwingWindow',0.05,1,0.05,' s')
+    select(left,'Hit part','Melee','Part',{'Head','UpperTorso','HumanoidRootPart'})
+    select(left,'Target priority','Melee','Priority',{'Distance','Lowest health'})
+    toggle(left,'Pause while menu is open','Melee','PauseMenu')
+    left:AddText({text='Equip melee; disable Auto attack for manual swings'})
+    left:AddButton({text='Show melee status',callback=function() library:SendNotification(melee.Status,5) end})
+    toggle(right,'Skip teammates','Melee','TeamCheck')
+    toggle(right,'Skip Roblox friends','Melee','SkipFriends')
+    toggle(right,'Skip ForceField','Melee','SkipForceField')
+    toggle(right,'Check walls','Melee','WallCheck')
+    slider(right,'Minimum target HP','Melee','MinHealth',1,100,1)
+    right:AddText({text='Requires executor Raycast hook APIs'})
+    right:AddText({text='Game weapon cooldowns still apply'})
     left,right=sections('Profiles','Local profiles','Interface')
     local profileName='default'
     left:AddBox({text='Profile name',flag='profile_name',input=profileName,callback=function(value) profileName=value end})
@@ -1357,6 +1548,7 @@ local ok,message=xpcall(function()
         if not game:GetService('UserInputService'):GetFocusedTextBox() and input.KeyCode==Enum.KeyCode.End then app:Unload() end
     end)
     engine:Start()
+    melee:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end

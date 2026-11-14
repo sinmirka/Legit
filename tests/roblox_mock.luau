@@ -105,7 +105,7 @@ services.TextService={GetTextSize=function(_,value,size)
     for line in (value..'\n'):gmatch('(.-)\n') do maxWidth=math.max(maxWidth,#line*size*0.5); lines+=1 end
     return vec(maxWidth,size*math.max(1,lines))
 end}
-services.RunService={RenderStepped=signal(),bindings={},priorities={}}
+services.RunService={RenderStepped=signal(),Heartbeat=signal(),bindings={},priorities={}}
 function services.RunService:BindToRenderStep(name,priority,callback) self.bindings[name]=callback; self.priorities[name]=priority end
 function services.RunService:UnbindFromRenderStep(name) self.bindings[name]=nil end
 services.UserInputService={InputBegan=signal(),InputEnded=signal(),InputChanged=signal(),WindowFocusReleased=signal(),WindowFocused=signal()}
