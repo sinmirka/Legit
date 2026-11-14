@@ -4,9 +4,31 @@ local RunService=game:GetService('RunService')
 local Input=game:GetService('UserInputService')
 local MeleeAura={}
 MeleeAura.__index=MeleeAura
-local weapons={Fists=true,Knuckledusters=true,Nunchucks=true,Shiv=true,Bat=true,
-    ['Metal-Bat']=true,Chainsaw=true,Balisong=true,Rambo=true,Shovel=true,
-    Sledgehammer=true,Katana=true,Wrench=true,Golfclub=true,['Fire Axe']=true}
+-- Criminality Wiki Category:Melees, checked 2026-11-14; includes event/legacy entries.
+MeleeAura.WeaponNames={'Wrench','Crowbar','Golf Club','Shovel','Bat','Baton','Metal Bat',
+    'Sledgehammer','Candy Crowbar','Hammer','Shiv','Bayonet','Taiga','Balisong','Rambo',
+    'Machete','Katana','Cursed Dagger',"Slayer's Sword II",'Scythe','Fallen Sword',
+    'ERADICATOR','ERADICATOR II','Black Bayonet',"Hallow's Blade",'Hatchet',
+    "Slayer's Sword",'Knuckledusters','Nunchucks','Fists','Fire Axe','Chainsaw',
+    'Clippers','X-Fist','Sabre'}
+local function weaponKey(name) return (name:lower():gsub('[%s%p]','')) end
+local weapons={}
+for _,name in ipairs(MeleeAura.WeaponNames) do weapons[weaponKey(name)]=true end
+for _,alias in ipairs({"Slayer's I","Slayer's II",'Military Machete','Necromancer Scythe',
+    'Cash Cane','Golden Katana','Voidedge Katana','RIPPER Chainsaw','COPE Axe'}) do
+    weapons[weaponKey(alias)]=true
+end
+function MeleeAura:IsMeleeTool(tool)
+    if not tool then return false end
+    if weapons[weaponKey(tool.Name)] then return true end
+    -- Observed Criminality tool layout; supports renamed/skinned melee tools.
+    -- Called by Step only, never by the Raycast dispatcher.
+    local module=tool:FindFirstChild('Melee')
+    local animations=tool:FindFirstChild('AnimsFolder')
+    local handle=tool:FindFirstChild('WeaponHandle')
+    return module~=nil and module:IsA('ModuleScript') and animations~=nil and animations:IsA('Folder')
+        and handle~=nil and handle:IsA('BasePart')
+end
 local function rig(player)
     local character=player.Character
     if not character or not character:IsDescendantOf(workspace) then return end
@@ -229,9 +251,10 @@ function MeleeAura:Step(now)
     local character,humanoid,root=rig(Players.LocalPlayer)
     local tool=character and character:FindFirstChildOfClass('Tool')
     if not character then self:Equip(nil); self:Reset(); self:StatusTo('Waiting for local character'); return end
-    if not tool or not weapons[tool.Name] or not tool.Enabled then
+    local meleeTool=self:IsMeleeTool(tool)
+    if not meleeTool or not tool.Enabled then
         self:Equip(nil); self:Reset()
-        self:StatusTo(not tool and 'Equip a supported melee tool' or (not weapons[tool.Name] and ('Unsupported tool: '..tool.Name) or ('Tool disabled: '..tool.Name)))
+        self:StatusTo(not tool and 'Equip a supported melee tool' or (not meleeTool and ('Unsupported tool: '..tool.Name) or ('Tool disabled: '..tool.Name)))
         return
     end
     self:Equip(tool)

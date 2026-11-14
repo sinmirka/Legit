@@ -117,6 +117,24 @@ tool.Name='Fists'; tool.Enabled=false; aura:Step(12); assert(not aura.target,'di
 tool.Enabled=true; aura:Step(13)
 tool.Name='Golfclub'; aura:Step(13.5)
 assert(aura.tool==tool and aura.target,'observed Criminality Golfclub is recognized as melee')
+local roster=getmetatable(aura).WeaponNames
+for _,name in ipairs(roster) do
+    tool.Name=name; aura:Step(13.6)
+    assert(aura.tool==tool and aura.target,'wiki melee recognized: '..name)
+end
+for _,name in ipairs({'Metal-Bat','Golfclub','fire_axe',"Slayer's II",'Cash Cane','Military Machete'}) do
+    tool.Name=name; assert(aura:IsMeleeTool(tool),'name variant recognized: '..name)
+end
+tool.Name='AK-47'; assert(not aura:IsMeleeTool(tool),'unrelated gun rejected')
+tool.Name='Katana Gun'; assert(not aura:IsMeleeTool(tool),'no substring weapon matches')
+tool.Name='Custom melee skin'
+tool.Children.Melee=Instance.new('ModuleScript'); tool.Children.AnimsFolder=Instance.new('Folder')
+tool.Children.WeaponHandle=Instance.new('Part')
+assert(aura:IsMeleeTool(tool),'renamed melee recognized by observed tool layout')
+tool.Children.Melee=Instance.new('Folder')
+assert(not aura:IsMeleeTool(tool),'non-module named Melee is not enough')
+tool.Children.Melee=nil; tool.Children.AnimsFolder=nil; tool.Children.WeaponHandle=nil
+tool.Name='Fists'
 character.Children.Humanoid.Health=0; aura:Step(14); assert(not aura.target,'local death')
 character.Children.Humanoid.Health=100
 -- Real UI/profile callbacks include all new settings and clear pending swing state.
