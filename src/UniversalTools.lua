@@ -117,6 +117,21 @@ function Tools:Effect(name,class,enabled)
         return effect
     elseif effect then effect:Destroy(); self.effects[name]=nil end
 end
+function Tools:SpeedStep(character,hum)
+    local c=self.config.Character
+    if not c.WalkSpeed then self.SpeedStatus='Disabled'; return end
+    if c.SpeedMethod=='WalkSpeed' then self.SpeedStatus='Humanoid WalkSpeed'; return end
+    local root=character and character:FindFirstChild('HumanoidRootPart')
+    if not hum or hum.Health<=0 or not root then self.SpeedStatus='Waiting for character'; return end
+    if root.Anchored or hum.Sit or hum.PlatformStand or hum.SeatPart then self.SpeedStatus='Paused: anchored / seated / ragdoll'; return end
+    local move,velocity=hum.MoveDirection,root.AssemblyLinearVelocity
+    if typeof(move)~='Vector3' or typeof(velocity)~='Vector3' then self.SpeedStatus='Waiting for movement'; return end
+    local horizontal=Vector3.new(move.X,0,move.Z)
+    if horizontal.Magnitude<0.001 then self.SpeedStatus='Velocity: idle'; return end
+    if horizontal.Magnitude>1 then horizontal=horizontal.Unit end
+    root.AssemblyLinearVelocity=Vector3.new(horizontal.X*c.Speed,velocity.Y,horizontal.Z*c.Speed)
+    self.SpeedStatus='Horizontal velocity'
+end
 function Tools:Step()
     if not self.alive then return end
     local desired={}
@@ -130,7 +145,7 @@ function Tools:Step()
     local hum=humanoid(Players.LocalPlayer)
     self:StaminaStep(character,hum)
     if hum and hum.Health>0 then
-        if c.WalkSpeed then set(hum,'WalkSpeed',c.Speed) end
+        if c.WalkSpeed and c.SpeedMethod=='WalkSpeed' then set(hum,'WalkSpeed',c.Speed) end
         if c.JumpOverride then
             set(hum,hum.UseJumpPower and 'JumpPower' or 'JumpHeight',hum.UseJumpPower and c.JumpPower or c.JumpHeight)
         end
@@ -162,6 +177,7 @@ function Tools:Step()
         if target and target.Health>0 then set(workspace.CurrentCamera,'CameraSubject',target) end
     end
     self:Reconcile(desired)
+    self:SpeedStep(character,hum)
     if not w.AtmosphereEnabled then self:Effect('Atmosphere','Atmosphere',false) end
 end
 function Tools:SetSelected(player)

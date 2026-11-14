@@ -53,6 +53,7 @@ option('Interaction_Instant'):SetState(true)
 button('Save profile').callback(); option('Interaction_Instant'):SetState(false); button('Load profile').callback()
 assert(app.Config.Interaction.Instant and prompt.HoldDuration==0,'interaction profile roundtrip')
 option('Interaction_Instant'):SetState(false)
+option('Character_SpeedMethod'):Select('WalkSpeed')
 option('Character_Speed'):SetValue(40); option('Character_WalkSpeed'):SetState(true)
 assert(localHum.WalkSpeed==40,'speed UI applies immediately')
 localHum.WalkSpeed=22; tools:Step(); assert(localHum.WalkSpeed==40,'speed stays enforced')
@@ -168,6 +169,22 @@ tools:RunScript('RemoteSpy'); assert(not tools.launched.RemoteSpy,'compile failu
 game.HttpGet=function() error('network failure') end
 tools:RunScript('RemoteSpy'); assert(not tools.launched.RemoteSpy,'network failure allows retry')
 game.HttpGet=http
+-- Criminality-style horizontal root velocity, with original Y physics intact.
+local movementRoot=newFixture.Character.Children.HumanoidRootPart
+newHum.MoveDirection=MOCK.vec(0.6,0,0.8); movementRoot.AssemblyLinearVelocity=MOCK.vec(1,12,2)
+option('Character_SpeedMethod'):Select('Velocity'); option('Character_Speed'):SetValue(40)
+option('Character_WalkSpeed'):SetState(true)
+assert(movementRoot.AssemblyLinearVelocity.X==24 and movementRoot.AssemblyLinearVelocity.Z==32 and movementRoot.AssemblyLinearVelocity.Y==12,'velocity method preserves Y and applies horizontal speed')
+assert(newHum.WalkSpeed==16,'switching methods restores humanoid property')
+newHum.MoveDirection=MOCK.vec(0,0,0); local idleVelocity=movementRoot.AssemblyLinearVelocity; tools:Step()
+assert(movementRoot.AssemblyLinearVelocity==idleVelocity,'idle movement does not inject velocity')
+newHum.MoveDirection=MOCK.vec(1,0,0); movementRoot.Anchored=true; tools:Step()
+assert(movementRoot.AssemblyLinearVelocity==idleVelocity,'anchored root ignored'); movementRoot.Anchored=false
+newHum.Sit=true; tools:Step(); assert(movementRoot.AssemblyLinearVelocity==idleVelocity,'seated root ignored'); newHum.Sit=false
+newHum.PlatformStand=true; tools:Step(); assert(movementRoot.AssemblyLinearVelocity==idleVelocity,'ragdoll ignored'); newHum.PlatformStand=false
+option('Character_WalkSpeed'):SetState(false); movementRoot.AssemblyLinearVelocity=MOCK.vec(7,-9,4); tools:Step()
+assert(movementRoot.AssemblyLinearVelocity.X==7 and movementRoot.AssemblyLinearVelocity.Y==-9,'disable stops velocity writes')
+option('Character_SpeedMethod'):Select('WalkSpeed')
 -- Stamina discovery is bounded and never runs GC every frame.
 assert(not c.InfiniteStamina,'stamina disabled by default')
 option('Character_InfiniteStamina'):SetState(true)

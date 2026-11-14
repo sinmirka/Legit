@@ -92,7 +92,7 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
-    Character={WalkSpeed=false,Speed=16,JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false,InfiniteStamina=false},
+    Character={WalkSpeed=false,Speed=16,SpeedMethod='Velocity',JumpOverride=false,JumpPower=50,JumpHeight=7.2,Noclip=false,InfiniteJump=false,InfiniteStamina=false},
     Interaction={Instant=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
@@ -158,6 +158,8 @@ function app:DebugContext()
     data.StaminaTables=tools and #tools.staminaTables or 0
     data.InstantInteraction=config.Interaction.Instant
     data.ObjectESPStatus=objects and objects.Status or 'not started'
+    data.SpeedMethod=config.Character.SpeedMethod
+    data.SpeedStatus=tools and tools.SpeedStatus or 'not started'
     data.SilentBackend='Gun Shoot directions + FastCast observation'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
@@ -453,7 +455,9 @@ local ok,message=xpcall(function()
     slider(left,'Jump power','Character','JumpPower',0,150,1)
     slider(left,'Jump height','Character','JumpHeight',0,30,0.1,' studs')
     toggle(right,'Walk speed','Character','WalkSpeed')
+    select(right,'Speed method','Character','SpeedMethod',{'Velocity','WalkSpeed'})
     slider(right,'Speed value','Character','Speed',0,150,1)
+    right:AddText({text='Velocity changes horizontal root movement and preserves vertical physics. Server correction may still apply.'})
     right:AddText({text='Jump power or height follows the game jump mode.'})
     right:AddText({text='Server movement limits can still apply.'})
     left,right=sections('World','World','World effects')
