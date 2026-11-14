@@ -19149,7 +19149,7 @@ local ok,message=xpcall(function()
     local camera=workspace.CurrentCamera
     local viewport=camera and camera.ViewportSize or Vector2.new(1280,720)
     local window=library.NewWindow({
-        title='Criminality Legit',size=UDim2.fromOffset(920,700),
+        title='LEGIT',size=UDim2.fromOffset(920,700),
         position=UDim2.fromOffset(math.max(10,(viewport.X-660)/2),math.max(10,(viewport.Y-680)/2)),
     })
     local registered={}
