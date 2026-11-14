@@ -100,6 +100,7 @@ assert(candidate and candidate.Player==enemy,'Aim prefers an eligible Enemy over
 app.Config.Melee.Enabled=true; app.Config.Melee.PauseMenu=false; app.Config.Melee.AutoAttack=false
 -- Test the shared Melee selection path without depending on executor hooks.
 app.MeleeAura.InstallHook=function() return true end
+app.MeleeAura.CapabilityProblem=function() return nil end
 local tool=Instance.new('Tool'); tool.Name='Fists'; tool.Enabled=true; tool.Parent=newFixture.Character
 newFixture.Character.Children.Tool=tool
 app.MeleeAura:Step(101)
