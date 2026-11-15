@@ -18747,6 +18747,15 @@ function Tools:StaminaStep(character,hum)
     end
     self:StaminaStatusTo(count>0 and ('Refilling '..count..' candidate stamina table(s)') or 'No compatible stamina table found')
 end
+function Tools:WriteProperty(object,key,value)
+    local current=object[key]
+    local states=self.applied[object]
+    if not states then states={}; self.applied[object]=states end
+    local state=states[key]
+    if not state then state={Original=current}; states[key]=state
+    elseif current~=state.Last then state.Original=current end
+    object[key]=value; state.Last=value
+end
 -- Restore only values we still own, preserving newer writes from the game or other scripts.
 function Tools:Reconcile(desired)
     for object,properties in pairs(self.applied) do
@@ -18760,15 +18769,7 @@ function Tools:Reconcile(desired)
     end
     for object,properties in pairs(desired) do
         for key,value in pairs(properties) do
-            pcall(function()
-                local current=object[key]
-                local states=self.applied[object]
-                if not states then states={}; self.applied[object]=states end
-                local state=states[key]
-                if not state then state={Original=current}; states[key]=state
-                elseif current~=state.Last then state.Original=current end
-                object[key]=value; state.Last=value
-            end)
+            pcall(self.WriteProperty,self,object,key,value)
         end
     end
 end
@@ -18798,27 +18799,55 @@ function Tools:SpeedStep(character,hum)
 end
 function Tools:SpinStep(set,character,hum,dt)
     local c=self.config.Character
-    if not c.Spinbot then self.SpinStatus='Disabled'; return end
+    if not c.Spinbot then self.spinRoot,self.spinNeck,self.spinPose=nil,nil,nil; self.SpinStatus='Disabled'; return end
     local root=character and character:FindFirstChild('HumanoidRootPart')
-    if not root or not hum or hum.Health<=0 then self.SpinStatus='Waiting for character'; return end
+    if not root or not hum or hum.Health<=0 then
+        self.spinRoot,self.spinNeck,self.spinPose=nil,nil,nil; self.SpinStatus='Waiting for character'; return
+    end
     local state=hum:GetState()
     if root.Anchored or hum.Sit or hum.SeatPart or hum.PlatformStand
         or state==Enum.HumanoidStateType.Ragdoll or state==Enum.HumanoidStateType.FallingDown then
+        self.spinRoot,self.spinNeck,self.spinPose=nil,nil,nil
         self.SpinStatus='Paused: anchored / seated / ragdoll'; return
     end
     set(hum,'AutoRotate',false)
-    local look=root.CFrame.LookVector
-    local yaw=math.atan2(-look.X,-look.Z)+math.rad(c.SpinSpeed)*math.clamp(dt or 0,0,0.1)
-    root.CFrame=CFrame.new(root.Position)*CFrame.Angles(0,yaw,0)
+    if self.spinRoot~=root then
+        self.spinRoot=root
+        local look=root.CFrame.LookVector
+        self.spinYaw=math.atan2(-look.X,-look.Z)
+        self.spinNeck,self.spinPose=nil,nil
+    end
+    -- Keep our own phase: gun aim must not reset the spin to the cursor each frame.
+    self.spinYaw=(self.spinYaw+math.rad(c.SpinSpeed)*math.clamp(dt or 0,0,0.1))%(math.pi*2)
+    root.CFrame=CFrame.new(root.Position)*CFrame.Angles(0,self.spinYaw,0)
     local head=character:FindFirstChild('Head')
     local torso=character:FindFirstChild('UpperTorso') or character:FindFirstChild('Torso')
     local neck=(head and head:FindFirstChild('Neck')) or (torso and torso:FindFirstChild('Neck'))
     if neck and neck:IsA('Motor6D') then
-        local tracked=self.applied[neck] and self.applied[neck].C0
-        local base=tracked and neck.C0==tracked.Last and tracked.Original or neck.C0
-        set(neck,'C0',CFrame.new(base.Position)*CFrame.Angles(math.rad(c.SpinPitch),0,0)*base.Rotation)
+        if self.spinNeck~=neck then
+            self.spinNeck=neck; self.spinPose={C0=neck.C0,C1=neck.C1}
+        end
+        local base=self.spinPose.C0
+        local rotation=CFrame.Angles(math.rad(c.SpinPitch),0,0)*base.Rotation
+        if neck.Part0 and self.spinPose.C1 then
+            -- Solve the joint pose for an absolute head angle relative to our yaw,
+            -- including rigs whose weapon animation also turns the torso.
+            rotation=neck.Part0.CFrame.Rotation:Inverse()*root.CFrame.Rotation
+                *CFrame.Angles(math.rad(c.SpinPitch),0,0)*self.spinPose.C1.Rotation
+        end
+        set(neck,'C0',CFrame.new(base.Position)*rotation)
+        set(neck,'C1',self.spinPose.C1)
+        set(neck,'Transform',CFrame.new())
     end
     self.SpinStatus=neck and 'Spinning / looking up' or 'Spinning (neck not found)'
+end
+function Tools:RenderSpin()
+    if not self.alive or not self.config.Character.Spinbot or not self.spinRoot then return end
+    local character=Players.LocalPlayer.Character
+    if not character or character:FindFirstChild('HumanoidRootPart')~=self.spinRoot then return end
+    -- Reassert after camera / weapon render callbacks without advancing phase twice.
+    self:SpinStep(function(object,key,value) self:WriteProperty(object,key,value) end,
+        character,humanoid(Players.LocalPlayer),0)
 end
 function Tools:Now() return os.clock() end
 function Tools:RestoreJumpState()
@@ -18946,6 +18975,11 @@ function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
     -- Apply collisions before the physics simulation as well as on UI changes.
     connect(RunService.Stepped,function(_,dt) self:Step(dt) end)
+    self.spinRenderName=(self.engine.renderName or 'Legit')..'_Spin'
+    RunService:BindToRenderStep(self.spinRenderName,Enum.RenderPriority.Last.Value+100,function()
+        local ok,problem=xpcall(function() self:RenderSpin() end,debug.traceback)
+        if not ok and self.engine.Logger then self.engine.Logger:Write('error','Spin','render',tostring(problem),nil,1) end
+    end)
     if workspace.DescendantAdded then connect(workspace.DescendantAdded,function(object) self:TrackPrompt(object) end) end
     local ok,prompts=pcall(game.GetService,game,'ProximityPromptService')
     if ok and prompts.PromptShown then connect(prompts.PromptShown,function(prompt) self:TrackPrompt(prompt); self:Step() end) end
@@ -18957,6 +18991,7 @@ end
 function Tools:Destroy()
     if not self.alive then return end
     self.alive=false
+    if self.spinRenderName then RunService:UnbindFromRenderStep(self.spinRenderName) end
     self:ClearJumpLimit()
     self:RescanStamina(); self:StaminaStatusTo('Disabled')
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
