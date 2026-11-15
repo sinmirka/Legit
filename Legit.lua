@@ -18072,7 +18072,7 @@ function Silent:Reset()
     end
     self.casters={}
     for _,slot in ipairs(self.tracePool) do
-        for _,object in pairs(slot) do if object.Visible then object.Visible=false end end
+        slot.Sent.Enabled=false; slot.Original.Enabled=false; slot.Hit.Transparency=1
     end
     if self.targetDot then self.targetDot.Visible=false; self.targetLabel.Visible=false end
 end
@@ -18390,16 +18390,16 @@ function Silent:TrackProjectile(args,method,trace)
         end
         connect(caster.LengthChanged,function(_,from,unit,length,_,projectile)
             local shot=self.projectiles[projectile]
-            if not shot or os.clock()-shot.Time>self.config.TraceDuration then return end
+            if not shot or os.clock()-(shot.Created or shot.Time)>15 then return end
             if finite(from) and finite(unit) and type(length)=='number' and length==length and length>=0 and length<math.huge then
-                shot.End=from+unit*length; self:QueueTrace(shot)
+                shot.End=from+unit*length; shot.Time=os.clock(); self:QueueTrace(shot)
             end
         end)
         connect(caster.RayHit,function(_,_,_,hit,position,_,_,_,_,projectile)
             local shot=self.projectiles[projectile]
             if not shot then return end
             self.projectiles[projectile]=nil
-            if finite(position) then shot.End=position; shot.Hit=hit~=nil; self:QueueTrace(shot) end
+            if finite(position) then shot.End=position; shot.Time=os.clock(); shot.Hit=hit~=nil; self:QueueTrace(shot) end
             self:Count(hit and 'projectile.clientHit' or 'projectile.rangeEnd')
             self:Log('trace','projectile.result','FastCast client result; not server damage confirmation',
                 {Hit=hit~=nil,Redirected=shot.Redirected},0.5)
@@ -18409,13 +18409,14 @@ function Silent:TrackProjectile(args,method,trace)
     -- Bound retained projectile records independently of missing/late hit signals.
     local count,oldest,oldestTime=0,nil,math.huge
     for projectile,shot in pairs(self.projectiles) do
-        if os.clock()-shot.Time>self.config.TraceDuration then self.projectiles[projectile]=nil
+        if os.clock()-(shot.Created or shot.Time)>15 then self.projectiles[projectile]=nil
         else
             count+=1
             if shot.Time<oldestTime then oldest,oldestTime=projectile,shot.Time end
         end
     end
     if count>=16 then self.projectiles[oldest]=nil end
+    trace.Created=trace.Time
     self.projectiles[bullet]=trace
 end
 local function screenPoint(camera,position)
@@ -18424,30 +18425,29 @@ local function screenPoint(camera,position)
     if p.Z<=0.01 or p.X<0 or p.Y<0 or p.X>size.X or p.Y>size.Y then return end
     return Vector2.new(p.X,p.Y)
 end
-local function screenSegment(camera,from,to)
-    local a=camera:WorldToViewportPoint(from)
-    local b=camera:WorldToViewportPoint(to)
-    if a.Z<=0.01 and b.Z<=0.01 then return end
-    if a.Z<=0.01 then
-        from=from+(to-from)*((0.02-a.Z)/(b.Z-a.Z))
-        a=camera:WorldToViewportPoint(from)
-    elseif b.Z<=0.01 then
-        to=from+(to-from)*((0.02-a.Z)/(b.Z-a.Z))
-        b=camera:WorldToViewportPoint(to)
+function Silent:NewTraceSlot()
+    local function part(name)
+        local object=Instance.new('Part')
+        object.Name=name; object.Anchored=true
+        object.CanCollide=false; object.CanTouch=false; object.CanQuery=false
+        object.CastShadow=false; object.Transparency=1
+        object.Size=Vector3.new(0.2,0.2,0.2); object.Position=Vector3.zero
+        return object
     end
-    -- Clip to the viewport so long/offscreen rays never create enormous GUI frames.
-    local dx,dy=b.X-a.X,b.Y-a.Y
-    local low,high=0,1
-    for _,edge in ipairs({{-dx,a.X},{dx,camera.ViewportSize.X-a.X},{-dy,a.Y},{dy,camera.ViewportSize.Y-a.Y}}) do
-        local p,q=edge[1],edge[2]
-        if math.abs(p)<0.000001 then if q<0 then return end
-        else
-            local t=q/p
-            if p<0 then low=math.max(low,t) else high=math.min(high,t) end
-            if low>high then return end
-        end
+    local root=part('LegitShotTrace'); root.Parent=workspace
+    local from=Instance.new('Attachment'); from.Parent=root
+    local to=Instance.new('Attachment'); to.Parent=root
+    local originalTo=Instance.new('Attachment'); originalTo.Parent=root
+    local function beam(endpoint)
+        local object=Instance.new('Beam')
+        object.Attachment0=from; object.Attachment1=endpoint
+        object.FaceCamera=true; object.LightEmission=1; object.LightInfluence=0
+        object.Segments=1; object.Enabled=false; object.Parent=root
+        return object
     end
-    return Vector2.new(a.X+dx*low,a.Y+dy*low),Vector2.new(a.X+dx*high,a.Y+dy*high)
+    local hit=part('ClientHit'); hit.Shape=Enum.PartType.Ball
+    hit.Material=Enum.Material.Neon; hit.Parent=root
+    return {Root=root,From=from,To=to,OriginalTo=originalTo,Sent=beam(to),Original=beam(originalTo),Hit=hit}
 end
 function Silent:Render(now)
     local s,camera=self.config,workspace.CurrentCamera
@@ -18467,36 +18467,27 @@ function Silent:Render(now)
     while #self.shots>16 do table.remove(self.shots,1) end
     for index,shot in ipairs(self.shots) do
         local slot=self.tracePool[index]
-        if not slot then
-            slot={Original=drawing('Line'),Sent=drawing('Line'),Dot=drawing('Circle'),Label=drawing('Text')}
-            slot.Dot.Radius=4; slot.Dot.Filled=true; slot.Label.Size=12; slot.Label.Outline=true
-            self.tracePool[index]=slot
-        end
+        if not slot then slot=self:NewTraceSlot(); self.tracePool[index]=slot end
         local color=shot.Redirected and cyan or orange
         local alpha=math.clamp(1-(now-shot.Time)/s.TraceDuration,0,1)
-        local from,to=screenSegment(camera,shot.Origin,shot.End)
-        slot.Sent.Visible=from~=nil
-        if from then
-            slot.Sent.From,slot.Sent.To=from,to; slot.Sent.Color=color
-            slot.Sent.Thickness=s.TraceThickness; slot.Sent.Transparency=alpha
+        slot.From.Position=shot.Origin; slot.To.Position=shot.End
+        slot.Sent.Color=ColorSequence.new(color)
+        slot.Sent.Width0=s.TraceWidth; slot.Sent.Width1=s.TraceWidth
+        slot.Sent.Transparency=NumberSequence.new(1-alpha)
+        slot.Sent.Enabled=true
+        slot.Original.Enabled=s.ShowOriginalRay
+        if s.ShowOriginalRay then
+            slot.OriginalTo.Position=shot.Origin+shot.Original.Unit*(shot.End-shot.Origin).Magnitude
+            slot.Original.Color=ColorSequence.new(Color3.fromRGB(170,170,180))
+            slot.Original.Width0=s.TraceWidth/2; slot.Original.Width1=s.TraceWidth/2
+            slot.Original.Transparency=NumberSequence.new(1-alpha*0.5)
         end
-        local originalFrom,originalTo
-        if s.ShowOriginalRay then originalFrom,originalTo=screenSegment(camera,shot.Origin,shot.Origin+shot.Original) end
-        slot.Original.Visible=originalFrom~=nil
-        if originalFrom then
-            slot.Original.From,slot.Original.To=originalFrom,originalTo
-            slot.Original.Color=Color3.fromRGB(170,170,180); slot.Original.Thickness=1; slot.Original.Transparency=alpha*0.5
-        end
-        local endpoint=screenPoint(camera,shot.End)
-        slot.Dot.Visible=endpoint~=nil; slot.Label.Visible=endpoint~=nil
-        if endpoint then
-            slot.Dot.Position=endpoint; slot.Dot.Color=color; slot.Dot.Transparency=alpha
-            slot.Label.Position=endpoint+Vector2.new(7,5); slot.Label.Color=color; slot.Label.Transparency=alpha
-            slot.Label.Text=(shot.Redirected and 'SA' or ('PASS: '..shot.Reason))..(shot.Hit and ' / client hit' or ' / ray end')
-        end
+        slot.Hit.Position=shot.End; slot.Hit.Color=color
+        slot.Hit.Transparency=shot.Hit and 1-alpha or 1
     end
     for index=#self.shots+1,#self.tracePool do
-        for _,object in pairs(self.tracePool[index]) do if object.Visible then object.Visible=false end end
+        local slot=self.tracePool[index]
+        slot.Sent.Enabled=false; slot.Original.Enabled=false; slot.Hit.Transparency=1
     end
     if s.ShowTargetGuide then
         if not self.targetDot then
@@ -18527,7 +18518,7 @@ function Silent:Destroy()
     if self.connection then self.connection:Disconnect() end
     if self.projectileHook and self.projectileHook.Owner==self then self.projectileHook.Owner=nil end
     if self.effectsHook and self.effectsHook.Owner==self then self.effectsHook.Owner=nil end
-    for _,slot in ipairs(self.tracePool) do for _,object in pairs(slot) do object:Remove() end end
+    for _,slot in ipairs(self.tracePool) do slot.Root:Destroy() end
     if self.targetDot then self.targetDot:Remove(); self.targetLabel:Remove() end
     self.tracePool={}; self.traceQueue={}; self.shots={}
     self.circle:Remove()
@@ -19130,7 +19121,7 @@ local config={
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
         Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12,
-        ShowTracers=true,ShowOriginalRay=true,ShowTargetGuide=true,TraceDuration=1,TraceThickness=2},
+        ShowTracers=true,ShowOriginalRay=false,ShowTargetGuide=false,TraceDuration=1,TraceWidth=0.1},
     Aim={
         Enabled=false,Key=Enum.UserInputType.MouseButton2,Mode='Hold',Part='Head',
         TeamCheck=false,SkipFriends=false,SkipForceField=false,WallCheck=true,MinHealth=1,
@@ -19423,11 +19414,11 @@ local ok,message=xpcall(function()
     toggle(silentControls,'Silent prediction','Silent','Prediction')
     slider(silentControls,'Silent prediction time','Silent','LeadTime',0,0.4,0.005,' s')
     slider(silentControls,'Silent minimum HP','Silent','MinHealth',1,100,1)
-    toggle(silentControls,'Show silent shot traces','Silent','ShowTracers')
+    toggle(silentControls,'3D shot traces','Silent','ShowTracers')
     toggle(silentControls,'Show original ray direction','Silent','ShowOriginalRay')
     toggle(silentControls,'Show silent target guide','Silent','ShowTargetGuide')
     slider(silentControls,'Shot trace lifetime','Silent','TraceDuration',0.2,3,0.1,' s')
-    slider(silentControls,'Shot trace thickness','Silent','TraceThickness',1,4,0.5,' px')
+    slider(silentControls,'3D trace width','Silent','TraceWidth',0.02,0.3,0.01,' studs')
     silentControls:AddText({text='Cyan: redirected; orange: unchanged; grey: original; gold: target guide.'})
     silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
     silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})

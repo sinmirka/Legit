@@ -81,6 +81,8 @@ function object:GetAttribute(name) return self.Attributes and self.Attributes[na
 function object:GetState() return self.State or Enum.HumanoidStateType.Running end
 Instance={new=function(class) return setmetatable({ClassName=class,Children={},Destroying=signal(),Activated=signal(),Deactivated=signal(),FocusLost=signal(),
     InputBegan=signal(),InputChanged=signal(),InputEnded=signal(),AbsolutePosition=vec(200,100),AbsoluteSize=vec(690,620),__type='Instance'},object) end}
+ColorSequence={new=function(value) return {Value=value} end}
+NumberSequence={new=function(value) return {Value=value} end}
 RaycastParams={new=function() return {} end}
 local drawMeta={}
 DRAWINGS={}
