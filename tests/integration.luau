@@ -135,6 +135,19 @@ assert(record.Bones[15].Visible,'R6 skeleton')
 assert(math.abs(record.Highlight.FillTransparency-(1-e.FillOpacity*0.3))<1e-9,'per-color opacity')
 app.Config.Overlay.BoxStyle='Full'; tested:ESP(camera,localRoot)
 assert(record.Box.Visible and not record.Corners[1].Visible,'full box clears corners')
+e.HealthColors=true; app.Config.Labels.Status=true
+for _,hp in ipairs({1,15,50,100}) do
+    humanoid.Health=hp; humanoid.PlatformStand=true; tested:ESP(camera,localRoot)
+    local c=record.Highlight.FillColor
+    if hp<=15 then assert(c.R==app.Config.Colors.HealthLow.R,'critical HP stays red') end
+    if hp==100 then assert(c.G==app.Config.Colors.HealthHigh.G,'full HP green') end
+    assert(record.StatusText.Visible and record.StatusText.Text==(hp<=15 and 'Downed' or 'Ragdolled'),'fallen HP classification')
+end
+humanoid.Health=10; humanoid.PlatformStand=false; tested:ESP(camera,localRoot)
+assert(not record.StatusText.Visible,'low HP alone does not imply downed')
+humanoid.State=Enum.HumanoidStateType.Ragdoll; tested:ESP(camera,localRoot)
+assert(record.StatusText.Text=='Downed','humanoid ragdoll state detected')
+humanoid.State=nil; humanoid.Health=100; e.HealthColors=false; app.Config.Labels.Status=false
 workspace.Hit={Instance={IsDescendantOf=function() return false end}}
 e.ThroughWalls=false; tested:ESP(camera,localRoot)
 assert(not record.Highlight.Enabled and not record.TopText.Visible,'occlusion hides ESP')

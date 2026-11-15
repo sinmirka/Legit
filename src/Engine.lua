@@ -3,6 +3,7 @@ local Players = game:GetService('Players')
 local RunService = game:GetService('RunService')
 local Input = game:GetService('UserInputService')
 local Http = game:GetService('HttpService')
+local Storage = game:GetService('ReplicatedStorage')
 local Engine = {}
 Engine.__index = Engine
 local friendGreen=Color3.fromRGB(80,235,130)
@@ -249,6 +250,7 @@ function Engine:NewRecord(other, character)
     record.HealthBar = add('Square', {Filled=true, ZIndex=6})
     record.TopText = add('Text', {Center=true, Outline=true, ZIndex=7})
     record.BottomText = add('Text', {Center=true, Outline=true, ZIndex=7})
+    record.StatusText = add('Text', {Center=true, Outline=true, ZIndex=7})
     record.TopTextBorder = add('Text', {Center=true, Outline=true, ZIndex=6})
     record.BottomTextBorder = add('Text', {Center=true, Outline=true, ZIndex=6})
     for i=1,#skeleton do record.Bones[i] = add('Line', {ZIndex=6}) end
@@ -291,7 +293,32 @@ function Engine:Colors(other, visible, now)
     if e.Rainbow then fill=Color3.fromHSV((now*e.RainbowSpeed)%1,0.8,1); outline=fill; fillKey,outlineKey='Fill','Outline' end
     if e.TargetColor and other == self.target then fill,outline=c.Target,c.Target; fillKey,outlineKey='Target','Target' end
     if friend then fill,outline=friend,friend end
+    if e.HealthColors then
+        local hum=other.Character and other.Character:FindFirstChildOfClass('Humanoid')
+        if hum then
+            local ratio=math.clamp((hum.Health-15)/math.max(1,hum.MaxHealth-15),0,1)
+            fill=c.HealthLow:Lerp(c.HealthHigh,ratio); outline=fill
+            return fill,outline,self:Opacity('Colors','HealthLow')*(1-ratio)+self:Opacity('Colors','HealthHigh')*ratio,
+                self:Opacity('Colors','HealthLow')*(1-ratio)+self:Opacity('Colors','HealthHigh')*ratio
+        end
+    end
     return fill,outline,self:Opacity('Colors',fillKey),self:Opacity('Colors',outlineKey)
+end
+function Engine:CharacterStatus(other,character,humanoid)
+    local state=humanoid:GetState()
+    local fallen=humanoid.PlatformStand or state==Enum.HumanoidStateType.Ragdoll or state==Enum.HumanoidStateType.FallingDown
+    local statsRoot=Storage:FindFirstChild('CharStats')
+    local stats=statsRoot and statsRoot:FindFirstChild(other.Name)
+    local containers={character,humanoid}
+    if stats then table.insert(containers,stats) end
+    for _,container in ipairs(containers) do
+        for _,name in ipairs({'Downed','Ragdolled','Ragdoll'}) do
+            local flag=container:FindFirstChild(name)
+            if (flag and flag:IsA('BoolValue') and flag.Value) or container:GetAttribute(name)==true then fallen=true end
+        end
+    end
+    if not fallen then return '' end
+    return humanoid.Health<=15 and 'Downed' or 'Ragdolled'
 end
 function Engine:DrawOverlay(record, other, character, humanoid, root, camera, distance, color, opacity, colorOpacity)
     local o, l = self.config.Overlay, self.config.Labels
@@ -381,6 +408,16 @@ function Engine:DrawOverlay(record, other, character, humanoid, root, camera, di
         record.BottomText.Text = table.concat(bottom,'\n')
         record.BottomText.Position = bottomCenter+Vector2.new(0,4+l.Offset)
         record.BottomText.Visible = #bottom>0
+        if l.Status then
+            local label=record.StatusText
+            label.Text=self:CharacterStatus(other,character,humanoid)
+            label.Position=bottomCenter+Vector2.new(0,4+l.Offset+#bottom*(l.Size+2))
+            label.Size,label.Font,label.Outline=l.Size,record.BottomText.Font,l.TextOutline
+            label.OutlineColor=self.config.Colors.TextOutline
+            label.Color=label.Text=='Downed' and Color3.fromRGB(255,35,35) or Color3.fromRGB(255,180,50)
+            label.Transparency=opacity*l.Opacity
+            label.Visible=label.Text~=''
+        end
         for index,border in ipairs({record.TopTextBorder,record.BottomTextBorder}) do
             local label=labels[index]
             border.Text,border.Position,border.Size,border.Font=label.Text,label.Position,label.Size,label.Font

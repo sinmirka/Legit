@@ -102,7 +102,7 @@ local config={
     ESP={
         Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=false,SkipFriends=false,
         MaxDistance=1500,RefreshRate=30,Opacity=1,FillOpacity=0.35,OutlineOpacity=1,
-        VisibleColors=false,TeamColors=false,TargetColor=true,Rainbow=false,RainbowSpeed=0.15,
+        VisibleColors=false,TeamColors=false,TargetColor=true,Rainbow=false,RainbowSpeed=0.15,HealthColors=false,
         Fade=false,FadeStart=0.6,Pulse=false,PulseSpeed=1,
     },
     ObjectESP={Scrap=false,GreenCrates=false,RedCrates=false,Airdrops=false,Dealers=false,
@@ -122,7 +122,7 @@ local config={
         Tracers=false,TracerOrigin='Bottom',TracerThickness=1,
         Skeleton=false,SkeletonThickness=1,HealthBar=false,HealthWidth=3,
     },
-    Labels={Enabled=true,Names=true,NameMode='Both',Health=true,Distance=true,Tool=false,Team=false,
+    Labels={Enabled=true,Names=true,NameMode='Both',Health=true,Distance=true,Tool=false,Team=false,Status=false,
         Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
@@ -337,6 +337,7 @@ local ok,message=xpcall(function()
     slider(left,'Fade starts at fraction','ESP','FadeStart',0,0.95,0.01)
     toggle(right,'Chams / character fill','ESP','Chams')
     toggle(right,'Character outline','ESP','Outline')
+    toggle(right,'HP ESP colors','ESP','HealthColors')
     slider(right,'Fill opacity','ESP','FillOpacity',0,1,0.01)
     slider(right,'Outline opacity','ESP','OutlineOpacity',0,1,0.01)
     toggle(right,'Visible / hidden colors','ESP','VisibleColors')
@@ -376,6 +377,7 @@ local ok,message=xpcall(function()
     toggle(left,'Names','Labels','Names')
     select(left,'Name format','Labels','NameMode',{'Display name','Username','Both'})
     toggle(left,'Health numbers','Labels','Health')
+    toggle(left,'Downed / Ragdolled status','Labels','Status')
     toggle(left,'Distance','Labels','Distance')
     toggle(left,'Equipped tool','Labels','Tool')
     toggle(left,'Team name','Labels','Team')
