@@ -79,13 +79,38 @@ s.Universal=true; silent:Step(5); assert(installed==1 and cast()~=direction,'swi
 app.Library:SetOpen(true); silent:Step(6); assert(cast()==direction,'menu pause')
 app.Library:SetOpen(false); silent:Step(7)
 s.Radius=1; silent:Step(8); assert(cast()==direction,'FOV filtering'); s.Radius=160
+local positions={}
+for _,part in ipairs(targetChar:GetChildren()) do
+    if part:IsA('BasePart') then positions[part]=part.Position; part.Position=vec(6,0,-30) end
+end
+silent:Step(8.1); assert(cast()==direction and not silent.prepared,'normal silent excludes targets behind camera')
+app.Library.options.Silent_Full360:SetState(true); s.Radius=1; silent:Step(8.2)
+assert(silent.prepared.Target.Player==target and cast().Z<0,'360 redirects behind camera independently of FOV')
+assert(not silent.circle.Visible and silent.Status:find('360',1,true),'360 status and no misleading FOV circle')
+assert(not app.Engine:Candidate(target,workspace.CurrentCamera,character.Children.HumanoidRootPart,app.Config.Aim),'camera aim still requires screen target')
+local autoShots=0
+mouse1click=function() autoShots+=1 end
+s.AutoFire=true; s.AutoFireMethod='Mouse'; silent:Step(8.4)
+assert(autoShots==1,'auto fire detects rear target in 360 mode')
+s.AutoFire=false; s.MaxDistance=10; silent:Step(8.5)
+assert(not silent.prepared and cast()==direction,'360 retains maximum range')
+s.MaxDistance=1000; workspace.Hit={Instance={IsDescendantOf=function() return false end}}
+silent:Step(8.6); assert(not silent.prepared,'360 retains wall filter'); workspace.Hit=nil
+hum.PlatformStand=true; hum.Health=15; silent:Step(8.7); assert(not silent.prepared,'360 retains downed filter')
+hum.PlatformStand=false; hum.Health=100
+app.Engine.playerModes[target.UserId]='Friend'; silent:Step(8.8); assert(not silent.prepared,'360 retains friend filter')
+app.Engine.playerModes[target.UserId]=nil
+s.Full360=false; silent:Step(8.9); assert(not silent.prepared,'turning 360 off restores screen filtering')
+for part,position in pairs(positions) do part.Position=position end
+s.Radius=160; s.Full360=true
 local function button(label)
     for _,tab in ipairs(app.Library.windows[1].tabs) do for _,section in ipairs(tab.sections) do
         for _,option in ipairs(section.options) do if option.class=='button' and option.text==label then return option end end
     end end
 end
 button('Save profile').callback(); app.Library.options.Silent_Universal:SetState(false)
-button('Load profile').callback(); assert(s.Universal,'mode persists in profile')
+app.Library.options.Silent_Full360:SetState(false)
+button('Load profile').callback(); assert(s.Universal and s.Full360,'universal and 360 modes persist in profile')
 silent:Step(9)
 local state=silent.raycastHook
 app:Unload(); assert(state.SilentOwner==nil and cast()==direction,'unload releases universal owner')

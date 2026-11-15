@@ -127,7 +127,7 @@ local config={
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
-    Silent={Enabled=false,Universal=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
+    Silent={Enabled=false,Universal=false,Full360=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
         AutoFire=false,AutoFireInterval=0.15,AutoFireMethod='Auto',
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
@@ -169,6 +169,7 @@ function app:DebugContext()
     data.SilentAutoFireStatus=silent and silent.AutoFireStatus or 'Disabled'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
+    data.Silent360=config.Silent.Full360
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
     data.SilentHitChance=config.Silent.HitChance; data.SilentMaxDistance=config.Silent.MaxDistance
     if silent then for key,value in pairs(silent.Counters) do data['Silent.'..key]=value end end
@@ -410,6 +411,8 @@ local ok,message=xpcall(function()
     right:AddText({text='Game weapon cooldowns still apply'})
     local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
     toggle(silentControls,'Enable silent aim','Silent','Enabled')
+    toggle(silentControls,'360 silent aim','Silent','Full360')
+    silentControls:AddText({text='360: targets around you; ignores screen FOV. Screen priority uses distance.'})
     toggle(silentControls,'Auto fire on target','Silent','AutoFire')
     slider(silentControls,'Auto fire interval','Silent','AutoFireInterval',0.05,1,0.01,' s')
     select(silentControls,'Auto fire input','Silent','AutoFireMethod',{'Auto','Tool','Mouse'})

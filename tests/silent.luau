@@ -218,6 +218,17 @@ local trackedConnection=silent.casters[1].Connections[1]
 local traceRoot=silent.tracePool[1].Root
 silent:Reset()
 assert(not trackedConnection.Connected and next(silent.projectiles)==nil and #silent.casters==0,'reset disconnects observers')
+local rearPositions={}
+for _,part in ipairs(targetChar:GetChildren()) do
+    if part:IsA('BasePart') then rearPositions[part]=part.Position; part.Position=vec(6,0,-30) end
+end
+s.Radius=1; silent:Step(23); assert(not silent.prepared,'normal Criminality mode retains screen FOV')
+s.Full360=true; silent:Step(24)
+assert(silent.prepared.Target.Player==target and fire().Z<0,'Criminality launch redirects to rear target in 360')
+assert(not silent.circle.Visible,'360 hides screen FOV')
+s.Full360=false; silent:Step(25); assert(not silent.prepared,'normal FOV restored after 360')
+for part,position in pairs(rearPositions) do part.Position=position end
+s.Radius=160
 local function button(label)
     for _,tab in ipairs(app.Library.windows[1].tabs) do for _,section in ipairs(tab.sections) do
         for _,option in ipairs(section.options) do if option.class=='button' and option.text==label then return option end end

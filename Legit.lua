@@ -17110,12 +17110,17 @@ function Engine:Candidate(other, camera, localRoot, settings, ray)
     if not part or not part:IsA('BasePart') then return nil,'body part' end
     local position = part.Position + Vector3.new(a.OffsetX, a.OffsetY, a.OffsetZ)
     if a.Prediction then position = position + root.AssemblyLinearVelocity * a.LeadTime end
-    local screen, onScreen = point(camera, position)
-    if not onScreen then return nil,'offscreen' end
-    local pixels = (screen - camera.ViewportSize/2).Magnitude
-    if pixels > a.Radius then return nil,'FOV' end
+    local full360 = a==self.config.Silent and a.Full360
+    local screen,pixels
+    if not full360 then
+        local onScreen
+        screen,onScreen=point(camera,position)
+        if not onScreen then return nil,'offscreen' end
+        pixels=(screen-camera.ViewportSize/2).Magnitude
+        if pixels>a.Radius then return nil,'FOV' end
+    end
     if a.WallCheck and not self:Visible(character, part.Position, camera, ray) then return nil,'wall' end
-    local score = pixels
+    local score = full360 and distance or pixels
     if a.Priority == 'Distance' then score = distance end
     if a.Priority == 'Lowest health' then score = humanoid.Health end
     return {Player=other, Part=part, Position=position, Screen=screen, Pixels=pixels, Score=score}
@@ -18297,8 +18302,9 @@ function Silent:Step(now)
     self.prepared=best and self.gunContext or nil
     self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
-    self.circle.Visible=s.ShowFOV
-    self:SetStatus((best and ('Target: @'..best.Player.Name) or 'No target in FOV')..' ['..(self.Backend or 'waiting for shot')..']')
+    self.circle.Visible=s.ShowFOV and not s.Full360
+    local emptyStatus=s.Full360 and 'No target in range' or 'No target in FOV'
+    self:SetStatus((best and ('Target: @'..best.Player.Name) or emptyStatus)..' ['..(self.Backend or 'waiting for shot')..(s.Full360 and ' / 360' or '')..']')
     self:AutoFireStep(now)
     if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
         self.lastSummary=now
@@ -19225,7 +19231,7 @@ local config={
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
-    Silent={Enabled=false,Universal=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
+    Silent={Enabled=false,Universal=false,Full360=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
         AutoFire=false,AutoFireInterval=0.15,AutoFireMethod='Auto',
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
@@ -19267,6 +19273,7 @@ function app:DebugContext()
     data.SilentAutoFireStatus=silent and silent.AutoFireStatus or 'Disabled'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
+    data.Silent360=config.Silent.Full360
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
     data.SilentHitChance=config.Silent.HitChance; data.SilentMaxDistance=config.Silent.MaxDistance
     if silent then for key,value in pairs(silent.Counters) do data['Silent.'..key]=value end end
@@ -19508,6 +19515,8 @@ local ok,message=xpcall(function()
     right:AddText({text='Game weapon cooldowns still apply'})
     local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
     toggle(silentControls,'Enable silent aim','Silent','Enabled')
+    toggle(silentControls,'360 silent aim','Silent','Full360')
+    silentControls:AddText({text='360: targets around you; ignores screen FOV. Screen priority uses distance.'})
     toggle(silentControls,'Auto fire on target','Silent','AutoFire')
     slider(silentControls,'Auto fire interval','Silent','AutoFireInterval',0.05,1,0.01,' s')
     select(silentControls,'Auto fire input','Silent','AutoFireMethod',{'Auto','Tool','Mouse'})

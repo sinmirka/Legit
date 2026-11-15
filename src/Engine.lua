@@ -121,12 +121,17 @@ function Engine:Candidate(other, camera, localRoot, settings, ray)
     if not part or not part:IsA('BasePart') then return nil,'body part' end
     local position = part.Position + Vector3.new(a.OffsetX, a.OffsetY, a.OffsetZ)
     if a.Prediction then position = position + root.AssemblyLinearVelocity * a.LeadTime end
-    local screen, onScreen = point(camera, position)
-    if not onScreen then return nil,'offscreen' end
-    local pixels = (screen - camera.ViewportSize/2).Magnitude
-    if pixels > a.Radius then return nil,'FOV' end
+    local full360 = a==self.config.Silent and a.Full360
+    local screen,pixels
+    if not full360 then
+        local onScreen
+        screen,onScreen=point(camera,position)
+        if not onScreen then return nil,'offscreen' end
+        pixels=(screen-camera.ViewportSize/2).Magnitude
+        if pixels>a.Radius then return nil,'FOV' end
+    end
     if a.WallCheck and not self:Visible(character, part.Position, camera, ray) then return nil,'wall' end
-    local score = pixels
+    local score = full360 and distance or pixels
     if a.Priority == 'Distance' then score = distance end
     if a.Priority == 'Lowest health' then score = humanoid.Health end
     return {Player=other, Part=part, Position=position, Screen=screen, Pixels=pixels, Score=score}

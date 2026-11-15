@@ -270,8 +270,9 @@ function Silent:Step(now)
     self.prepared=best and self.gunContext or nil
     self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
-    self.circle.Visible=s.ShowFOV
-    self:SetStatus((best and ('Target: @'..best.Player.Name) or 'No target in FOV')..' ['..(self.Backend or 'waiting for shot')..']')
+    self.circle.Visible=s.ShowFOV and not s.Full360
+    local emptyStatus=s.Full360 and 'No target in range' or 'No target in FOV'
+    self:SetStatus((best and ('Target: @'..best.Player.Name) or emptyStatus)..' ['..(self.Backend or 'waiting for shot')..(s.Full360 and ' / 360' or '')..']')
     self:AutoFireStep(now)
     if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
         self.lastSummary=now
