@@ -69,7 +69,7 @@ function Silent:FastCastModule()
     return module and module:IsA('ModuleScript') and module or nil
 end
 function Silent:CapabilityProblem()
-    for _,name in ipairs({'hookfunction','getcallingscript','checkcaller'}) do
+    for _,name in ipairs({'hookfunction','checkcaller'}) do
         if type(getfenv()[name])~='function' then return 'Unavailable: missing '..name end
     end
 end
@@ -94,7 +94,7 @@ function Silent:InstallEffectsHook()
                 local owner=state.Owner
                 if owner and owner.alive and owner.config.Enabled and not checkcaller() then
                     local args=table.pack(...)
-                    local success,err=pcall(owner.Shoot,owner,getcallingscript(),args)
+                    local success,err=pcall(owner.Shoot,owner,nil,args)
                     if not success then owner:Log('error','shoot',tostring(err),nil,1) end
                 end
                 return original(...)
@@ -111,7 +111,7 @@ function Silent:Shoot(caller,args)
     local p=self.gunContext
     if args[1]~='Shoot' then return end
     self:Count('shoot.seen')
-    if args[4]~=true or not p or args[5]~=p.Tool or not inside(caller,p.Tool) then
+    if args[4]~=true or not p or args[5]~=p.Tool then
         self:Count('shoot.skip.local gun scope'); return
     end
     local list=args[7]
@@ -122,7 +122,9 @@ function Silent:Shoot(caller,args)
         originals[i]=direction
         local fake={nil,args[3],args[6],direction,self.ballistics and self.ballistics.Velocity or 1}
         fake[9]=self.ballistics and self.ballistics.Acceleration
-        local sent,_,reason=self:AimLaunch(caller,'Fire',fake)
+        -- The local flag and equipped Tool identify this shot even when Effects
+        -- runs from a shared module/coroutine rather than a child of the Tool.
+        local sent,_,reason=self:AimLaunch(caller,'Fire',fake,true)
         replacements[i]=sent or direction; changed[i]=sent~=nil; reasons[i]=reason or 'redirected'
     end
     -- Preserve the list identity: Gun sends this same table after Effects returns.
@@ -136,6 +138,7 @@ function Silent:Shoot(caller,args)
         self.launches[args[3]]={Time=now,Tool=p.Tool,Originals=originals,Sent=replacements,Changed=changed,Reasons=reasons}
     end
     self:Count('shoot.prepared')
+    self.Backend='Gun directions'
 end
 function Silent:InstallProjectileHook()
     if self.projectileHook then return true end
@@ -161,7 +164,8 @@ function Silent:InstallProjectileHook()
                     local owner=state.Owner
                     if not owner or not owner.alive or not owner.config.Enabled or checkcaller() then return original(...) end
                     local args=table.pack(...)
-                    local changed,direction,velocity=pcall(owner.Projectile,owner,getcallingscript(),method,args)
+                    local caller=type(getcallingscript)=='function' and getcallingscript() or nil
+                    local changed,direction,velocity=pcall(owner.Projectile,owner,caller,method,args)
                     if changed then
                         if direction then args[4],args[5]=direction,velocity end
                     else
@@ -210,12 +214,14 @@ function Silent:Step(now)
         return
     end
     self:Equip(tool)
-    if not self.projectileHook or not self.effectsHook then
+    if not self.projectileHook or not self.effectsAttempted then
         if self.installing then self:SetStatus('Loading FastCast adapter'); return end
         if now<(self.nextInstall or 0) then return end
         self.nextInstall=now+2; self.installing=true
-        local installed,reason=self:InstallEffectsHook()
-        if installed then installed,reason=self:InstallProjectileHook() end
+        local effectsOK,effectsReason=self:InstallEffectsHook()
+        self.effectsAttempted=true
+        if not effectsOK then self:Log('info','shoot.fallback',effectsReason,nil,5) end
+        local installed,reason=self:InstallProjectileHook()
         self.installing=false
         if not installed then self:Reset(); self:SetStatus(reason); return end
     end
@@ -245,14 +251,14 @@ function Silent:Step(now)
     self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
     self.circle.Visible=s.ShowFOV
-    self:SetStatus(best and ('Target: @'..best.Player.Name) or 'No target in FOV')
+    self:SetStatus((best and ('Target: @'..best.Player.Name) or 'No target in FOV')..' ['..(self.Backend or 'waiting for shot')..']')
     if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
         self.lastSummary=now
         self:Log('info','summary',self.Status,self.Counters)
         self:Log('info','filters','Rejected target evaluations',rejected)
     end
 end
-function Silent:AimLaunch(caller,method,args)
+function Silent:AimLaunch(caller,method,args,localShot)
     local function reject(reason) self:Count('shoot.skip.'..reason); return nil,nil,reason end
     local s,p=self.config,self.gunContext
     if not self.alive or not s.Enabled or not self.engine.focused or (s.PauseMenu and self.library.open) then return reject('paused') end
@@ -264,7 +270,7 @@ function Silent:AimLaunch(caller,method,args)
     if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 or self.tool~=p.Tool
         or p.Tool.Parent~=p.Character or not p.Tool.Enabled then return reject('tool/rig') end
     if (origin-p.Root.Position).Magnitude>s.OriginRadius then return reject('distant origin') end
-    if not inside(caller,p.Tool) then return reject('caller mismatch') end
+    if not localShot and not inside(caller,p.Tool) then return reject('caller mismatch') end
     local function skip(reason) return reject(reason) end
     local target=p.Target
     if not target then return skip('no target') end
@@ -297,11 +303,30 @@ function Silent:AimLaunch(caller,method,args)
         {Method=method,Speed=speed,Range=direction.Magnitude,Target=target.Player.Name},0.5)
     return sent,type(velocity)=='number' and velocity or unit*speed
 end
-function Silent:Projectile(_,method,args)
+function Silent:Projectile(caller,method,args)
     -- Observation only. The gun's shared direction list was already changed upstream.
     self:Count('projectile.seen')
     local launch=self.launches and self.launches[args[2]]
-    if not launch or os.clock()-launch.Time>2 or launch.Tool~=self.tool then self:Count('projectile.skip.no matching launch'); return end
+    if launch and (os.clock()-launch.Time>2 or launch.Tool~=self.tool) then launch=nil end
+    if not launch then
+        local p=self.gunContext
+        local localShot=false
+        if p and args[8]==true then
+            if method=='Fire' then localShot=args[7]==p.Character
+            elseif method=='FireWithBlacklist' and type(args[6])=='table' then
+                for _,excluded in ipairs(args[6]) do if excluded==p.Character then localShot=true; break end end
+            end
+        end
+        if not localShot then self:Count('projectile.skip.foreign shooter'); return end
+        local direction,velocity,reason=self:AimLaunch(caller,method,args,true)
+        self.Backend='FastCast launch fallback'
+        self:Count('projectile.fallback')
+        if self.config.ShowTracers and finite(args[3]) and finite(args[4]) then
+            self:TrackProjectile(args,method,{Origin=args[3],Original=args[4],Sent=direction or args[4],
+                Time=os.clock(),Redirected=direction~=nil,Reason=reason or 'redirected at FastCast'})
+        end
+        return direction,velocity
+    end
     local direction=args[4]
     if not finite(direction) or direction.Magnitude<0.001 then return end
     local index

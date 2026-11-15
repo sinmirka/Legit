@@ -120,10 +120,18 @@ assert(effectsArgs[7][1]==direction,'server-bound table keeps unchanged directio
 executor=true; assert(fire()==direction,'executor fire bypasses'); executor=false
 origin=vec(100,0,0); assert(fire()==direction,'distant origin bypass'); origin=vec(0,0,0)
 callingscript=module
-assert(fire()==direction and fire('Fire')==direction,'foreign caller cannot modify gun direction list')
-exclusions={otherChar}; assert(fire()==direction,'other shooter never redirected')
-exclusions={character}; assert(fire('FireWithWhitelist')==direction,'local character in whitelist does not identify shooter')
+assert(fire()~=direction,'local Tool and flag survive shared module caller')
+getcallingscript=nil
+assert(fire()~=direction,'Effects local shot works without caller API')
+getcallingscript=function() return callingscript end
 callingscript=caller
+-- A real local FastCast launch can bypass the shared Effects dispatcher.
+local fallbackArgs=table.pack(caster,999,origin,direction,velocity,exclusions,bullet,true,acceleration)
+local function direct() return hooks[api.FireWithBlacklist](table.unpack(fallbackArgs,1,fallbackArgs.n)) end
+assert(direct()=='original' and lastArgs[4].X>0 and close(lastArgs[4].Unit,lastArgs[5].Unit),'fallback steers both launch vectors')
+fallbackArgs[6]={otherChar}; direct(); assert(lastArgs[4]==direction,'foreign shooter untouched')
+fallbackArgs[6]=exclusions; fallbackArgs[8]=false; direct(); assert(lastArgs[4]==direction,'replicated projectile untouched')
+fallbackArgs[8]=true; s.HitChance=0; direct(); assert(lastArgs[4]==direction,'fallback honors chance'); s.HitChance=100
 hum.Health=0; assert(fire()==direction,'target death invalidates cached aim'); hum.Health=100
 hum.PlatformStand=true; hum.Health=16; assert(fire()~=direction,'downed above 15 HP allowed'); hum.Health=15; assert(fire()==direction,'newly downed cached target skipped'); hum.PlatformStand=false; hum.Health=100
 local focused=MOCK.services.UserInputService.GetFocusedTextBox

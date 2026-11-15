@@ -163,7 +163,7 @@ function app:DebugContext()
     data.UI='Obsidian'
     data.UIRenderError=library.LastRenderError or 'none'
     data.SpeedStatus=tools and tools.SpeedStatus or 'not started'
-    data.SilentBackend='Gun Shoot directions + FastCast observation'
+    data.SilentBackend=silent and silent.Backend or 'waiting for shot'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
