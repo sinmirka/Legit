@@ -93,7 +93,8 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
-    Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false},
+    Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false,
+        Spinbot=false,SpinSpeed=360,SpinPitch=70},
     Interaction={Instant=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
@@ -468,6 +469,9 @@ local ok,message=xpcall(function()
     loot:AddText({text='Independent of player ESP. Crate names/types/colours are used; verify current game layout.'})
     left,right=sections('Character','Criminality movement','Speed options')
     toggle(left,'NoClip','Character','Noclip')
+    toggle(left,'Spinbot','Character','Spinbot')
+    slider(left,'Spin speed','Character','SpinSpeed',-1440,1440,30,' deg/s')
+    slider(left,'Look up angle','Character','SpinPitch',0,85,1,' deg')
     left:AddText({text='Movement uses the horizontal velocity method from the Criminality reference. Server correction may still apply.'})
     toggle(right,'Velocity speed','Character','VelocitySpeed')
     slider(right,'Speed value','Character','Speed',0,150,1)
