@@ -37,6 +37,7 @@ function Silent:SetStatus(value)
     if self.logger then self.logger:State('Silent','status',value) end
 end
 function Silent:Reset()
+    self.cycleVisited=nil
     self:ReleaseAutoFire()
     self.AutoFireStatus=self.config.AutoFire and 'Waiting for target' or 'Disabled'
     self.prepared,self.gunContext=nil,nil; self.circle.Visible=false
@@ -245,7 +246,7 @@ function Silent:Step(now)
         if not installed then self:Reset(); self:SetStatus(reason); return end
     end
     self.ray.FilterDescendantsInstances={character,camera}
-    local best,rejected=nil,{}
+    local best,rejected,candidates=nil,{},{}
     -- Target scans and visibility checks stay outside the projectile hook.
     local ok,problem=pcall(function()
         for _,player in ipairs(Players:GetPlayers()) do
@@ -258,6 +259,7 @@ function Silent:Step(now)
                 if downed and targetHum.Health<=15 then candidate=nil; reason='downed/ragdoll <=15 HP'
                 else candidate.Character=targetChar; candidate.Humanoid=targetHum; candidate.DownedFlags=flags; candidate.Downed=downed end
             end
+            if candidate then table.insert(candidates,candidate) end
             if candidate and (not best or self.engine:TargetRank(player)<self.engine:TargetRank(best.Player)
                 or (self.engine:TargetRank(player)==self.engine:TargetRank(best.Player) and (candidate.Score<best.Score
                     or (candidate.Score==best.Score and player.UserId<best.Player.UserId)))) then best=candidate end
@@ -265,6 +267,8 @@ function Silent:Step(now)
         end
     end)
     if not ok then error(problem) end
+    if s.Full360 and s.CycleTargets and s.AutoFire then best=self:SelectCycleTarget(candidates)
+    else self.cycleVisited=nil end
     self.gunContext={Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool,
         Universal=s.Universal,CameraOrigin=camera.CFrame.Position}
     self.prepared=best and self.gunContext or nil
@@ -279,6 +283,23 @@ function Silent:Step(now)
         self:Log('info','summary',self.Status,self.Counters)
         self:Log('info','filters','Rejected target evaluations',rejected)
     end
+end
+function Silent:SelectCycleTarget(candidates)
+    if #candidates==0 then self.cycleVisited=nil; return nil end
+    table.sort(candidates,function(a,b)
+        if a.Distance~=b.Distance then return a.Distance<b.Distance end
+        return a.Player.UserId<b.Player.UserId
+    end)
+    self.cycleVisited=self.cycleVisited or {}
+    -- Remove departed/invalid targets rather than retaining player IDs indefinitely.
+    local eligible={}
+    for _,candidate in ipairs(candidates) do eligible[candidate.Player.UserId]=true end
+    for id in pairs(self.cycleVisited) do if not eligible[id] then self.cycleVisited[id]=nil end end
+    for _,candidate in ipairs(candidates) do
+        if not self.cycleVisited[candidate.Player.UserId] then return candidate end
+    end
+    self.cycleVisited={}
+    return candidates[1]
 end
 function Silent:ReleaseAutoFire()
     local tool=self.autoFireTool
@@ -318,6 +339,10 @@ function Silent:AutoFireStep(now)
         self:ReleaseAutoFire(); self.AutoFireStatus='Activation failed'
         self:Log('error','autofire.activate',tostring(problem),nil,1)
     else
+        if s.Full360 and s.CycleTargets and s.AutoFire then
+            self.cycleVisited=self.cycleVisited or {}
+            self.cycleVisited[p.Target.Player.UserId]=true
+        end
         self.AutoFireStatus=method..': firing'
         self:Log('trace','autofire.activate','Activated input for selected target',
             {Method=method,Target=p.Target.Player.Name},0.5)

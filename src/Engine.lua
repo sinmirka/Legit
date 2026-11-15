@@ -134,7 +134,7 @@ function Engine:Candidate(other, camera, localRoot, settings, ray)
     local score = full360 and distance or pixels
     if a.Priority == 'Distance' then score = distance end
     if a.Priority == 'Lowest health' then score = humanoid.Health end
-    return {Player=other, Part=part, Position=position, Screen=screen, Pixels=pixels, Score=score}
+    return {Player=other, Part=part, Position=position, Screen=screen, Pixels=pixels, Score=score, Distance=distance}
 end
 function Engine:ResetTarget()
     self.target, self.pending = nil, nil

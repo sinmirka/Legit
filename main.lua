@@ -129,7 +129,7 @@ local config={
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
     Silent={Enabled=false,Universal=false,Full360=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
-        AutoFire=false,AutoFireInterval=0.15,AutoFireMethod='Auto',
+        AutoFire=false,AutoFireInterval=0.15,AutoFireMethod='Auto',CycleTargets=false,
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
         Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12,
@@ -413,6 +413,8 @@ local ok,message=xpcall(function()
     local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
     toggle(silentControls,'Enable silent aim','Silent','Enabled')
     toggle(silentControls,'360 silent aim','Silent','Full360')
+    toggle(silentControls,'Cycle targets (360 auto fire)','Silent','CycleTargets')
+    silentControls:AddText({text='Cycles nearest to farthest, one target per auto-fire attempt.'})
     silentControls:AddText({text='360: targets around you; ignores screen FOV. Screen priority uses distance.'})
     toggle(silentControls,'Auto fire on target','Silent','AutoFire')
     slider(silentControls,'Auto fire interval','Silent','AutoFireInterval',0.05,1,0.01,' s')

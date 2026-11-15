@@ -91,9 +91,10 @@ silent:Step(0); assert(installed==0 and not silent.circle.Visible,'disabled inst
 s.Enabled=true; silent:Step(1)
 assert(installed==4 and silent.prepared.Target.Player==target,'independent target and shared Shoot and three observation entrypoints')
 local cameraFrame=workspace.CurrentCamera.CFrame
-local autoShots,releases=0,0
+local autoShots,releases,autoTargets=0,0,{}
 function gun:Activate()
     autoShots+=1
+    table.insert(autoTargets,silent.prepared.Target.Player.UserId)
     assert(fire()~=direction,'autofire has a prepared Criminality direction before activating')
 end
 function gun:Deactivate() releases+=1 end
@@ -102,6 +103,11 @@ s.AutoFire=true; silent:Step(1.01)
 assert(autoShots==1,'autofire activates supported Criminality gun')
 s.AutoFire=false; silent:Step(1.02)
 assert(autoShots==1 and releases==1,'disabling releases activation')
+s.AutoFire=true; s.Full360=true; s.CycleTargets=true
+silent:Step(1.2); silent:Step(1.36); silent:Step(1.52)
+assert(autoTargets[2]==target.UserId and autoTargets[3]==other.UserId and autoTargets[4]==target.UserId,
+    'Criminality auto fire cycles nearest then other then restarts')
+s.AutoFire=false; s.Full360=false; s.CycleTargets=false; silent:Step(1.53)
 for _,method in ipairs(methods) do
     local sent,speed=fire(method)
     assert(sent.X>0 and math.abs(sent.Magnitude-direction.Magnitude)<1e-8,'range and target direction')
