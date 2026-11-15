@@ -91,6 +91,17 @@ silent:Step(0); assert(installed==0 and not silent.circle.Visible,'disabled inst
 s.Enabled=true; silent:Step(1)
 assert(installed==4 and silent.prepared.Target.Player==target,'independent target and shared Shoot and three observation entrypoints')
 local cameraFrame=workspace.CurrentCamera.CFrame
+local autoShots,releases=0,0
+function gun:Activate()
+    autoShots+=1
+    assert(fire()~=direction,'autofire has a prepared Criminality direction before activating')
+end
+function gun:Deactivate() releases+=1 end
+assert(not s.AutoFire and autoShots==0,'autofire disabled by default')
+s.AutoFire=true; silent:Step(1.01)
+assert(autoShots==1,'autofire activates supported Criminality gun')
+s.AutoFire=false; silent:Step(1.02)
+assert(autoShots==1 and releases==1,'disabling releases activation')
 for _,method in ipairs(methods) do
     local sent,speed=fire(method)
     assert(sent.X>0 and math.abs(sent.Magnitude-direction.Magnitude)<1e-8,'range and target direction')

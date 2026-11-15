@@ -17,6 +17,7 @@
 
 - [Roblox: ProximityPrompt](https://create.roblox.com/docs/reference/engine/classes/ProximityPrompt) — свойства удержания и события взаимодействия.
 - [Roblox: Proximity prompts](https://create.roblox.com/docs/ui/proximity-prompts) — управление prompts и ProximityPromptService.
+- [Roblox: Tool](https://create.roblox.com/docs/reference/engine/classes/Tool) — Activate / Deactivate для импульсов автоматической стрельбы Silent Aim.
 
 Ссылки выше разделяют изученные примеры и реально подключённые зависимости. Работоспособность функций в живой игре отмечается отдельно от локальных тестов.
 

@@ -37,6 +37,8 @@ function Silent:SetStatus(value)
     if self.logger then self.logger:State('Silent','status',value) end
 end
 function Silent:Reset()
+    self:ReleaseAutoFire()
+    self.AutoFireStatus=self.config.AutoFire and 'Waiting for target' or 'Disabled'
     self.prepared,self.gunContext=nil,nil; self.circle.Visible=false
     self.traceQueue={}; self.shots={}
     self.projectiles={}; self.launches={}
@@ -191,6 +193,8 @@ function Silent:InstallProjectileHook()
     return true
 end
 function Silent:Step(now)
+    -- End our previous Tool pulse before selecting/activating the next target.
+    self:ReleaseAutoFire()
     local s=self.config
     if self.lastUniversal~=s.Universal then
         self:Equip(nil); self:Reset(); self.Backend=nil; self.lastUniversal=s.Universal
@@ -268,10 +272,54 @@ function Silent:Step(now)
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
     self.circle.Visible=s.ShowFOV
     self:SetStatus((best and ('Target: @'..best.Player.Name) or 'No target in FOV')..' ['..(self.Backend or 'waiting for shot')..']')
+    self:AutoFireStep(now)
     if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
         self.lastSummary=now
         self:Log('info','summary',self.Status,self.Counters)
         self:Log('info','filters','Rejected target evaluations',rejected)
+    end
+end
+function Silent:ReleaseAutoFire()
+    local tool=self.autoFireTool
+    self.autoFireTool=nil
+    if tool then
+        local ok,problem=pcall(function() tool:Deactivate() end)
+        if not ok then self:Log('error','autofire.release',tostring(problem),nil,1) end
+    end
+end
+function Silent:AutoFireStep(now)
+    local s,p=self.config,self.prepared
+    if not self.alive or not s.Enabled or not s.AutoFire then self.AutoFireStatus='Disabled'; return end
+    if not p or not p.Target or p.Target.Humanoid.Health<=0 or s.HitChance<=0 then
+        self.AutoFireStatus='Waiting for target'; return
+    end
+    if not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
+        or self.library:IsPointerOverUI() or (s.PauseMenu and self.library.open) then
+        self:ReleaseAutoFire(); self.AutoFireStatus='Paused by input / menu'; return
+    end
+    if now<(self.nextAutoFire or 0) then self.AutoFireStatus='Waiting for interval'; return end
+    local tool=p.Universal and p.Character:FindFirstChildOfClass('Tool') or p.Tool
+    local method=s.AutoFireMethod
+    if method=='Auto' then method=tool and 'Tool' or 'Mouse' end
+    if method=='Tool' and (not tool or tool.Parent~=p.Character or not tool.Enabled) then
+        self.AutoFireStatus='Waiting for enabled Tool'; return
+    end
+    if method=='Mouse' and type(mouse1click)~='function' then
+        self.AutoFireStatus='Unavailable: missing mouse1click'; return
+    end
+    self.nextAutoFire=now+math.max(0.05,s.AutoFireInterval)
+    self:Count('autofire.attempted')
+    local ok,problem=pcall(function()
+        if method=='Tool' then self.autoFireTool=tool; tool:Activate()
+        else mouse1click() end
+    end)
+    if not ok then
+        self:ReleaseAutoFire(); self.AutoFireStatus='Activation failed'
+        self:Log('error','autofire.activate',tostring(problem),nil,1)
+    else
+        self.AutoFireStatus=method..': firing'
+        self:Log('trace','autofire.activate','Activated input for selected target',
+            {Method=method,Target=p.Target.Player.Name},0.5)
     end
 end
 function Silent:AimLaunch(caller,method,args,localShot)
@@ -546,7 +594,7 @@ function Silent:Start()
 end
 function Silent:Destroy()
     if not self.alive then return end
-    self.alive=false; self:Equip(nil)
+    self.alive=false; self:Reset(); self.tool,self.ballistics=nil,nil
     if self.connection then self.connection:Disconnect() end
     if self.projectileHook and self.projectileHook.Owner==self then self.projectileHook.Owner=nil end
     if self.effectsHook and self.effectsHook.Owner==self then self.effectsHook.Owner=nil end

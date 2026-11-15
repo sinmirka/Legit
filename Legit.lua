@@ -18064,6 +18064,8 @@ function Silent:SetStatus(value)
     if self.logger then self.logger:State('Silent','status',value) end
 end
 function Silent:Reset()
+    self:ReleaseAutoFire()
+    self.AutoFireStatus=self.config.AutoFire and 'Waiting for target' or 'Disabled'
     self.prepared,self.gunContext=nil,nil; self.circle.Visible=false
     self.traceQueue={}; self.shots={}
     self.projectiles={}; self.launches={}
@@ -18218,6 +18220,8 @@ function Silent:InstallProjectileHook()
     return true
 end
 function Silent:Step(now)
+    -- End our previous Tool pulse before selecting/activating the next target.
+    self:ReleaseAutoFire()
     local s=self.config
     if self.lastUniversal~=s.Universal then
         self:Equip(nil); self:Reset(); self.Backend=nil; self.lastUniversal=s.Universal
@@ -18295,10 +18299,54 @@ function Silent:Step(now)
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
     self.circle.Visible=s.ShowFOV
     self:SetStatus((best and ('Target: @'..best.Player.Name) or 'No target in FOV')..' ['..(self.Backend or 'waiting for shot')..']')
+    self:AutoFireStep(now)
     if self.logger and self.logger.settings.Enabled and now-self.lastSummary>=2 then
         self.lastSummary=now
         self:Log('info','summary',self.Status,self.Counters)
         self:Log('info','filters','Rejected target evaluations',rejected)
+    end
+end
+function Silent:ReleaseAutoFire()
+    local tool=self.autoFireTool
+    self.autoFireTool=nil
+    if tool then
+        local ok,problem=pcall(function() tool:Deactivate() end)
+        if not ok then self:Log('error','autofire.release',tostring(problem),nil,1) end
+    end
+end
+function Silent:AutoFireStep(now)
+    local s,p=self.config,self.prepared
+    if not self.alive or not s.Enabled or not s.AutoFire then self.AutoFireStatus='Disabled'; return end
+    if not p or not p.Target or p.Target.Humanoid.Health<=0 or s.HitChance<=0 then
+        self.AutoFireStatus='Waiting for target'; return
+    end
+    if not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
+        or self.library:IsPointerOverUI() or (s.PauseMenu and self.library.open) then
+        self:ReleaseAutoFire(); self.AutoFireStatus='Paused by input / menu'; return
+    end
+    if now<(self.nextAutoFire or 0) then self.AutoFireStatus='Waiting for interval'; return end
+    local tool=p.Universal and p.Character:FindFirstChildOfClass('Tool') or p.Tool
+    local method=s.AutoFireMethod
+    if method=='Auto' then method=tool and 'Tool' or 'Mouse' end
+    if method=='Tool' and (not tool or tool.Parent~=p.Character or not tool.Enabled) then
+        self.AutoFireStatus='Waiting for enabled Tool'; return
+    end
+    if method=='Mouse' and type(mouse1click)~='function' then
+        self.AutoFireStatus='Unavailable: missing mouse1click'; return
+    end
+    self.nextAutoFire=now+math.max(0.05,s.AutoFireInterval)
+    self:Count('autofire.attempted')
+    local ok,problem=pcall(function()
+        if method=='Tool' then self.autoFireTool=tool; tool:Activate()
+        else mouse1click() end
+    end)
+    if not ok then
+        self:ReleaseAutoFire(); self.AutoFireStatus='Activation failed'
+        self:Log('error','autofire.activate',tostring(problem),nil,1)
+    else
+        self.AutoFireStatus=method..': firing'
+        self:Log('trace','autofire.activate','Activated input for selected target',
+            {Method=method,Target=p.Target.Player.Name},0.5)
     end
 end
 function Silent:AimLaunch(caller,method,args,localShot)
@@ -18573,7 +18621,7 @@ function Silent:Start()
 end
 function Silent:Destroy()
     if not self.alive then return end
-    self.alive=false; self:Equip(nil)
+    self.alive=false; self:Reset(); self.tool,self.ballistics=nil,nil
     if self.connection then self.connection:Disconnect() end
     if self.projectileHook and self.projectileHook.Owner==self then self.projectileHook.Owner=nil end
     if self.effectsHook and self.effectsHook.Owner==self then self.effectsHook.Owner=nil end
@@ -19178,6 +19226,7 @@ local config={
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
     Silent={Enabled=false,Universal=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
+        AutoFire=false,AutoFireInterval=0.15,AutoFireMethod='Auto',
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
         Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12,
@@ -19214,6 +19263,8 @@ function app:DebugContext()
     data.UIRenderError=library.LastRenderError or 'none'
     data.SpeedStatus=tools and tools.SpeedStatus or 'not started'
     data.SilentBackend=silent and silent.Backend or 'waiting for shot'
+    data.SilentAutoFire=config.Silent.AutoFire
+    data.SilentAutoFireStatus=silent and silent.AutoFireStatus or 'Disabled'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
@@ -19457,6 +19508,9 @@ local ok,message=xpcall(function()
     right:AddText({text='Game weapon cooldowns still apply'})
     local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
     toggle(silentControls,'Enable silent aim','Silent','Enabled')
+    toggle(silentControls,'Auto fire on target','Silent','AutoFire')
+    slider(silentControls,'Auto fire interval','Silent','AutoFireInterval',0.05,1,0.01,' s')
+    select(silentControls,'Auto fire input','Silent','AutoFireMethod',{'Auto','Tool','Mouse'})
     toggle(silentControls,'Universal Raycast (any weapon)','Silent','Universal')
     silentControls:AddText({text='Off: Criminality. On: workspace:Raycast, without weapon checks.'})
     select(silentControls,'Silent target part','Silent','Part',{'Head','UpperTorso','HumanoidRootPart'})
@@ -19482,8 +19536,10 @@ local ok,message=xpcall(function()
     slider(silentControls,'Shot trace lifetime','Silent','TraceDuration',0.2,3,0.1,' s')
     slider(silentControls,'3D trace width','Silent','TraceWidth',0.02,0.3,0.01,' studs')
     silentControls:AddText({text='Cyan: redirected; orange: unchanged; grey: original; gold: target guide.'})
-    silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
-    silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})
+    silentControls:AddButton({text='Show silent status',callback=function()
+        library:SendNotification(silent.Status..' | Auto fire: '..(silent.AutoFireStatus or 'Disabled'),5)
+    end})
+    silentControls:AddText({text='Auto input: equipped Tool, otherwise mouse1click. Mouse input requires executor support.'})
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
     local stamina=tabs.Character:AddSection('Criminality / Stamina',1)
     toggle(stamina,'Infinite stamina','Character','InfiniteStamina')

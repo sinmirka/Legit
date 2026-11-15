@@ -128,6 +128,7 @@ local config={
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
     Silent={Enabled=false,Universal=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
+        AutoFire=false,AutoFireInterval=0.15,AutoFireMethod='Auto',
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
         Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12,
@@ -164,6 +165,8 @@ function app:DebugContext()
     data.UIRenderError=library.LastRenderError or 'none'
     data.SpeedStatus=tools and tools.SpeedStatus or 'not started'
     data.SilentBackend=silent and silent.Backend or 'waiting for shot'
+    data.SilentAutoFire=config.Silent.AutoFire
+    data.SilentAutoFireStatus=silent and silent.AutoFireStatus or 'Disabled'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
     data.SilentEnabled=config.Silent.Enabled
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
@@ -407,6 +410,9 @@ local ok,message=xpcall(function()
     right:AddText({text='Game weapon cooldowns still apply'})
     local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
     toggle(silentControls,'Enable silent aim','Silent','Enabled')
+    toggle(silentControls,'Auto fire on target','Silent','AutoFire')
+    slider(silentControls,'Auto fire interval','Silent','AutoFireInterval',0.05,1,0.01,' s')
+    select(silentControls,'Auto fire input','Silent','AutoFireMethod',{'Auto','Tool','Mouse'})
     toggle(silentControls,'Universal Raycast (any weapon)','Silent','Universal')
     silentControls:AddText({text='Off: Criminality. On: workspace:Raycast, without weapon checks.'})
     select(silentControls,'Silent target part','Silent','Part',{'Head','UpperTorso','HumanoidRootPart'})
@@ -432,8 +438,10 @@ local ok,message=xpcall(function()
     slider(silentControls,'Shot trace lifetime','Silent','TraceDuration',0.2,3,0.1,' s')
     slider(silentControls,'3D trace width','Silent','TraceWidth',0.02,0.3,0.01,' studs')
     silentControls:AddText({text='Cyan: redirected; orange: unchanged; grey: original; gold: target guide.'})
-    silentControls:AddButton({text='Show silent status',callback=function() library:SendNotification(silent.Status,5) end})
-    silentControls:AddText({text='Equip a gun and fire normally. Camera aim is independent.'})
+    silentControls:AddButton({text='Show silent status',callback=function()
+        library:SendNotification(silent.Status..' | Auto fire: '..(silent.AutoFireStatus or 'Disabled'),5)
+    end})
+    silentControls:AddText({text='Auto input: equipped Tool, otherwise mouse1click. Mouse input requires executor support.'})
     tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
     local stamina=tabs.Character:AddSection('Criminality / Stamina',1)
     toggle(stamina,'Infinite stamina','Character','InfiniteStamina')
