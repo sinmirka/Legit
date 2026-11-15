@@ -18,6 +18,8 @@
 - [Roblox: ProximityPrompt](https://create.roblox.com/docs/reference/engine/classes/ProximityPrompt) — свойства удержания и события взаимодействия.
 - [Roblox: Proximity prompts](https://create.roblox.com/docs/ui/proximity-prompts) — управление prompts и ProximityPromptService.
 - [Roblox: Tool](https://create.roblox.com/docs/reference/engine/classes/Tool) — Activate / Deactivate для импульсов автоматической стрельбы Silent Aim.
+- [Roblox: Humanoid](https://create.roblox.com/docs/reference/engine/classes/Humanoid) — AutoRotate, StateChanged и GetStateEnabled / SetStateEnabled для Spinbot и задержки прыжков.
+- [Roblox: Motor6D](https://create.roblox.com/docs/reference/engine/classes/Motor6D), [CFrame](https://create.roblox.com/docs/reference/engine/datatypes/CFrame) — вращение персонажа и изменение ориентации шеи с сохранением смещения.
 
 Ссылки выше разделяют изученные примеры и реально подключённые зависимости. Работоспособность функций в живой игре отмечается отдельно от локальных тестов.
 
