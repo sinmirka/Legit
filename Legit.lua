@@ -18096,6 +18096,7 @@ function Silent:FastCastModule()
     return module and module:IsA('ModuleScript') and module or nil
 end
 function Silent:CapabilityProblem()
+    if self.config.Universal then return self.melee:CapabilityProblem() end
     for _,name in ipairs({'hookfunction','checkcaller'}) do
         if type(getfenv()[name])~='function' then return 'Unavailable: missing '..name end
     end
@@ -18135,6 +18136,7 @@ function Silent:InstallEffectsHook()
     return true
 end
 function Silent:Shoot(caller,args)
+    if self.config.Universal then return end
     local p=self.gunContext
     if args[1]~='Shoot' then return end
     self:Count('shoot.seen')
@@ -18217,6 +18219,12 @@ function Silent:InstallProjectileHook()
 end
 function Silent:Step(now)
     local s=self.config
+    if self.lastUniversal~=s.Universal then
+        self:Equip(nil); self:Reset(); self.Backend=nil; self.lastUniversal=s.Universal
+    end
+    if self.raycastHook and (not s.Enabled or not s.Universal) and self.raycastHook.SilentOwner==self then
+        self.raycastHook.SilentOwner=nil
+    end
     if not self.alive or not s.Enabled then self:Reset(); self:SetStatus('Disabled'); return end
     local unavailable=self:CapabilityProblem()
     if unavailable then self:Reset(); self:SetStatus(unavailable); return end
@@ -18231,17 +18239,24 @@ function Silent:Step(now)
     if not character or not humanoid or humanoid.Health<=0 or not root or not camera then
         self:Equip(nil); self:Reset(); self:SetStatus('Waiting for character / camera'); return
     end
-    local tool=character:FindFirstChildOfClass('Tool')
+    local tool=not s.Universal and character:FindFirstChildOfClass('Tool') or nil
     local values=tool and tool:FindFirstChild('Values')
     local ammo=values and (values:FindFirstChild('SERVER_Ammo') or values:FindFirstChild('Ammo') or values:FindFirstChild('StoredAmmo'))
-    if not tool or not tool.Enabled or self.melee:IsMeleeTool(tool) or not ammo then
+    if not s.Universal and (not tool or not tool.Enabled or self.melee:IsMeleeTool(tool) or not ammo) then
         self:Equip(nil); self:Reset()
         self:SetStatus(tool and not self.melee:IsMeleeTool(tool) and not ammo
             and 'Unsupported gun: ammo values not found' or 'Equip an enabled gun')
         return
     end
-    self:Equip(tool)
-    if not self.projectileHook or not self.effectsAttempted then
+    if s.Universal then
+        self:Equip(nil)
+        if not self.melee:InstallHook() then self:Reset(); self:SetStatus(self.melee.Status); return end
+        self.raycastHook=self.melee.hook; self.raycastHook.SilentOwner=self
+        self.Backend='Universal Raycast'
+    else
+        self:Equip(tool)
+    end
+    if not s.Universal and (not self.projectileHook or not self.effectsAttempted) then
         if self.installing then self:SetStatus('Loading FastCast adapter'); return end
         if now<(self.nextInstall or 0) then return end
         self.nextInstall=now+2; self.installing=true
@@ -18273,7 +18288,8 @@ function Silent:Step(now)
         end
     end)
     if not ok then error(problem) end
-    self.gunContext={Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool}
+    self.gunContext={Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool,
+        Universal=s.Universal,CameraOrigin=camera.CFrame.Position}
     self.prepared=best and self.gunContext or nil
     self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
@@ -18288,8 +18304,8 @@ end
 function Silent:AimLaunch(caller,method,args,localShot)
     local function reject(reason) self:Count('shoot.skip.'..reason); return nil,nil,reason end
     local s,p=self.config,self.gunContext
-    if not self.alive or not s.Enabled or not self.engine.focused or (s.PauseMenu and self.library.open) then return reject('paused') end
-    if not p then return reject('no gun context') end
+    if not self.alive or not s.Enabled or s.Universal or not self.engine.focused or (s.PauseMenu and self.library.open) then return reject('paused') end
+    if not p or p.Universal then return reject('no gun context') end
     local origin,direction,velocity=args[3],args[4],args[5]
     if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return reject('invalid vector') end
     local speed=type(velocity)=='number' and velocity or (finite(velocity) and velocity.Magnitude)
@@ -18331,6 +18347,7 @@ function Silent:AimLaunch(caller,method,args,localShot)
     return sent,type(velocity)=='number' and velocity or unit*speed
 end
 function Silent:Projectile(caller,method,args)
+    if self.config.Universal then return end
     -- Observation only. The gun's shared direction list was already changed upstream.
     self:Count('projectile.seen')
     local launch=self.launches and self.launches[args[2]]
@@ -18366,6 +18383,48 @@ function Silent:Projectile(caller,method,args)
     self.nextTrace=now+0.05
     self:TrackProjectile(args,method,{Origin=args[3],Original=launch.Originals[index].Unit*direction.Magnitude,
         Sent=direction,Time=now,Redirected=launch.Changed[index],Reason=launch.Reasons[index]})
+end
+-- Universal mode only changes the direction of a real workspace:Raycast.
+-- No tool names, ammo values, game modules or synthetic hit results are required.
+function Silent:Redirect(_,origin,direction)
+    local s,p=self.config,self.gunContext
+    if not self.alive or not s.Enabled or not s.Universal or not p or not p.Universal
+        or not self.engine.focused or (s.PauseMenu and self.library.open) then return end
+    if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return end
+    if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 then return end
+    if (origin-p.Root.Position).Magnitude>s.OriginRadius and (origin-p.CameraOrigin).Magnitude>s.OriginRadius then return end
+    local target=p.Target
+    local sent,reason=nil,'no target'
+    if target and target.Player.Parent==Players and target.Player.Character==target.Character
+        and target.Humanoid.Health>0 and target.Humanoid.Health>=s.MinHealth
+        and target.Part.Parent==target.Character and (target.Part.Position-p.Root.Position).Magnitude<=s.MaxDistance then
+        local downed=false
+        if s.SkipDowned and target.Humanoid.Health<=15 then
+            downed=target.Downed or target.Humanoid.PlatformStand
+            for _,flag in ipairs(target.DownedFlags or {}) do if flag.Value then downed=true end end
+        end
+        local delta=target.Position-origin
+        reason='range / downed / hit chance'
+        if not downed and delta.Magnitude>0.001 and delta.Magnitude<=direction.Magnitude
+            and s.HitChance>0 and (s.HitChance>=100 or math.random(1,100)<=s.HitChance) then
+            sent=delta.Unit*direction.Magnitude; reason='redirected'
+            self:Count('ray.redirected')
+        end
+    end
+    local trace
+    local now=os.clock()
+    if s.ShowTracers and now>=(self.nextUniversalTrace or 0) then
+        self.nextUniversalTrace=now+0.05
+        trace={Origin=origin,Original=direction,Sent=sent or direction,Time=now,Redirected=sent~=nil,Reason=reason}
+    end
+    return sent,trace
+end
+function Silent:ObserveHit() end -- The shared dispatcher records the actual result below.
+function Silent:RecordTrace(trace,result)
+    local hit=(typeof(result)=='RaycastResult' or type(result)=='table') and result or nil
+    trace.End=hit and finite(hit.Position) and hit.Position or trace.Origin+trace.Sent
+    trace.Hit=hit and hit.Instance~=nil or false
+    self:QueueTrace(trace)
 end
 function Silent:QueueTrace(trace)
     if trace.Queued then return end
@@ -18518,6 +18577,7 @@ function Silent:Destroy()
     if self.connection then self.connection:Disconnect() end
     if self.projectileHook and self.projectileHook.Owner==self then self.projectileHook.Owner=nil end
     if self.effectsHook and self.effectsHook.Owner==self then self.effectsHook.Owner=nil end
+    if self.raycastHook and self.raycastHook.SilentOwner==self then self.raycastHook.SilentOwner=nil end
     for _,slot in ipairs(self.tracePool) do slot.Root:Destroy() end
     if self.targetDot then self.targetDot:Remove(); self.targetLabel:Remove() end
     self.tracePool={}; self.traceQueue={}; self.shots={}
@@ -19117,7 +19177,7 @@ local config={
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
-    Silent={Enabled=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
+    Silent={Enabled=false,Universal=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
         Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12,
@@ -19397,6 +19457,8 @@ local ok,message=xpcall(function()
     right:AddText({text='Game weapon cooldowns still apply'})
     local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
     toggle(silentControls,'Enable silent aim','Silent','Enabled')
+    toggle(silentControls,'Universal Raycast (any weapon)','Silent','Universal')
+    silentControls:AddText({text='Off: Criminality. On: workspace:Raycast, without weapon checks.'})
     select(silentControls,'Silent target part','Silent','Part',{'Head','UpperTorso','HumanoidRootPart'})
     select(silentControls,'Silent priority','Silent','Priority',{'Screen','Distance','Lowest health'})
     slider(silentControls,'Hit chance per projectile','Silent','HitChance',0,100,1,' %')

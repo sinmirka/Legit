@@ -127,7 +127,7 @@ local config={
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
-    Silent={Enabled=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
+    Silent={Enabled=false,Universal=false,Part='Head',Priority='Screen',TeamCheck=false,SkipFriends=false,
         SkipForceField=true,SkipDowned=true,WallCheck=true,MinHealth=1,MaxDistance=1000,Radius=160,
         HitChance=100,ShowFOV=true,FOVColor=Color3.fromRGB(255,215,90),FOVOpacity=0.7,
         Prediction=false,LeadTime=0.1,OffsetX=0,OffsetY=0,OffsetZ=0,PauseMenu=true,OriginRadius=12,
@@ -407,6 +407,8 @@ local ok,message=xpcall(function()
     right:AddText({text='Game weapon cooldowns still apply'})
     local silentControls=tabs.Aimbot:AddSection('Silent Aim',2)
     toggle(silentControls,'Enable silent aim','Silent','Enabled')
+    toggle(silentControls,'Universal Raycast (any weapon)','Silent','Universal')
+    silentControls:AddText({text='Off: Criminality. On: workspace:Raycast, without weapon checks.'})
     select(silentControls,'Silent target part','Silent','Part',{'Head','UpperTorso','HumanoidRootPart'})
     select(silentControls,'Silent priority','Silent','Priority',{'Screen','Distance','Lowest health'})
     slider(silentControls,'Hit chance per projectile','Silent','HitChance',0,100,1,' %')
