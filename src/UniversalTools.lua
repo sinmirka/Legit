@@ -154,6 +154,47 @@ function Tools:SpinStep(set,character,hum,dt)
     end
     self.SpinStatus=neck and 'Spinning / looking up' or 'Spinning (neck not found)'
 end
+function Tools:Now() return os.clock() end
+function Tools:RestoreJumpState()
+    local override=self.jumpOverride
+    self.jumpOverride=nil
+    if override then
+        pcall(function()
+            local hum=override.Humanoid
+            if hum:GetStateEnabled(Enum.HumanoidStateType.Jumping)==false then
+                hum:SetStateEnabled(Enum.HumanoidStateType.Jumping,override.Original)
+            end
+        end)
+    end
+end
+function Tools:ClearJumpLimit()
+    if self.jumpConnection then self.jumpConnection:Disconnect(); self.jumpConnection=nil end
+    self:RestoreJumpState(); self.jumpHum=nil; self.lastJump=nil
+end
+function Tools:JumpLimitStep(hum,now)
+    if not self.config.Character.JumpCooldown or not hum or hum.Health<=0 then
+        self:ClearJumpLimit(); self.JumpStatus=self.config.Character.JumpCooldown and 'Waiting for character' or 'Disabled'; return
+    end
+    if self.jumpHum~=hum then
+        self:ClearJumpLimit(); self.jumpHum=hum
+        self.jumpConnection=hum.StateChanged:Connect(function(_,state)
+            if self.alive and self.config.Character.JumpCooldown and state==Enum.HumanoidStateType.Jumping then
+                self.lastJump=self:Now(); self:JumpLimitStep(hum,self.lastJump)
+            end
+        end)
+        if hum:GetState()==Enum.HumanoidStateType.Jumping then self.lastJump=now end
+    end
+    local remaining=self.lastJump and self.config.Character.JumpDelay-(now-self.lastJump) or 0
+    if remaining>0 then
+        local current=hum:GetStateEnabled(Enum.HumanoidStateType.Jumping)
+        if not self.jumpOverride then self.jumpOverride={Humanoid=hum,Original=current}
+        elseif current~=false then self.jumpOverride.Original=current end
+        hum:SetStateEnabled(Enum.HumanoidStateType.Jumping,false); hum.Jump=false
+        self.JumpStatus=string.format('Cooldown: %.1f s',remaining)
+    else
+        self:RestoreJumpState(); self.JumpStatus='Ready'
+    end
+end
 function Tools:Step(dt)
     if not self.alive then return end
     local desired={}
@@ -172,6 +213,7 @@ function Tools:Step(dt)
     end
     self:StaminaStep(character,hum)
     self:SpinStep(set,character,hum,dt)
+    self:JumpLimitStep(hum,self:Now())
     if w.TimeEnabled then set(Lighting,'ClockTime',w.Time) end
     if w.ExposureEnabled then set(Lighting,'ExposureCompensation',w.Exposure) end
     if w.AmbientEnabled then set(Lighting,'Ambient',w.Ambient); set(Lighting,'OutdoorAmbient',w.Ambient) end
@@ -249,6 +291,7 @@ end
 function Tools:Destroy()
     if not self.alive then return end
     self.alive=false
+    self:ClearJumpLimit()
     self:RescanStamina(); self:StaminaStatusTo('Disabled')
     for _,connection in ipairs(self.connections) do connection:Disconnect() end
     self:Reconcile({})

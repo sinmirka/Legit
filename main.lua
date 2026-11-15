@@ -94,7 +94,7 @@ local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
     Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false,
-        Spinbot=false,SpinSpeed=360,SpinPitch=70},
+        Spinbot=false,SpinSpeed=360,SpinPitch=70,JumpCooldown=false,JumpDelay=0.5},
     Interaction={Instant=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
@@ -472,6 +472,8 @@ local ok,message=xpcall(function()
     toggle(left,'Spinbot','Character','Spinbot')
     slider(left,'Spin speed','Character','SpinSpeed',-1440,1440,30,' deg/s')
     slider(left,'Look up angle','Character','SpinPitch',0,85,1,' deg')
+    toggle(left,'Limit jump rate','Character','JumpCooldown')
+    slider(left,'Delay between jumps','Character','JumpDelay',0.1,3,0.1,' s')
     left:AddText({text='Movement uses the horizontal velocity method from the Criminality reference. Server correction may still apply.'})
     toggle(right,'Velocity speed','Character','VelocitySpeed')
     slider(right,'Speed value','Character','Speed',0,150,1)
