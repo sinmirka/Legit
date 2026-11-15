@@ -53,14 +53,26 @@ option('Interaction_Instant'):SetState(true)
 button('Save profile').callback(); option('Interaction_Instant'):SetState(false); button('Load profile').callback()
 assert(app.Config.Interaction.Instant and prompt.HoldDuration==0,'interaction profile roundtrip')
 option('Interaction_Instant'):SetState(false)
-for _,removed in ipairs({'Noclip','InfiniteJump','JumpOverride','JumpPower','JumpHeight','WalkSpeed','SpeedMethod'}) do
+for _,removed in ipairs({'InfiniteJump','JumpOverride','JumpPower','JumpHeight','WalkSpeed','SpeedMethod'}) do
     assert(not app.Library.options['Character_'..removed],'removed movement control: '..removed)
 end
 -- Old runtime/profile fields cannot revive removed property writes or jump handlers.
-c.Noclip=true; c.JumpOverride=true; c.InfiniteJump=true; c.WalkSpeed=true; c.SpeedMethod='WalkSpeed'; c.JumpPower=80
+c.JumpOverride=true; c.InfiniteJump=true; c.WalkSpeed=true; c.SpeedMethod='WalkSpeed'; c.JumpPower=80
 localHum.LastState=nil; tools:Step(); MOCK.services.UserInputService.JumpRequest:Fire()
 assert(localHum.WalkSpeed==16 and localHum.JumpPower==50 and localRoot.CanCollide and not localHum.LastState,'legacy fields cannot run removed methods')
-c.Noclip=nil; c.JumpOverride=nil; c.InfiniteJump=nil; c.WalkSpeed=nil; c.SpeedMethod=nil; c.JumpPower=nil
+c.JumpOverride=nil; c.InfiniteJump=nil; c.WalkSpeed=nil; c.SpeedMethod=nil; c.JumpPower=nil
+option('Character_Noclip'):SetState(true)
+assert(not localRoot.CanCollide and not localHead.CanCollide,'noclip applies all body parts')
+localRoot.CanCollide=true; MOCK.services.RunService.Stepped:Fire()
+assert(not localRoot.CanCollide,'noclip reapplied before physics')
+option('Character_Noclip'):SetState(false)
+assert(localRoot.CanCollide and not localHead.CanCollide,'original collisions restored')
+option('Character_Noclip'):SetState(true)
+local replacement=makePlayer(1,'NoclipRespawn')
+players.LocalPlayer.Character=replacement.Character; tools:Step()
+assert(localRoot.CanCollide and not replacement.Character.Children.HumanoidRootPart.CanCollide,'respawn restores old rig and applies new')
+option('Character_Noclip'):SetState(false)
+players.LocalPlayer.Character=localFixture.Character
 c.Speed=35
 local newFixture,newHum=makePlayer(1,'Respawn')
 players.LocalPlayer.Character=newFixture.Character; tools:Step()

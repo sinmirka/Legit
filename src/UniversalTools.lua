@@ -141,6 +141,11 @@ function Tools:Step()
     self:InteractionStep(set)
     local character=Players.LocalPlayer.Character
     local hum=humanoid(Players.LocalPlayer)
+    if c.Noclip and character and hum and hum.Health>0 then
+        for _,part in ipairs(character:GetDescendants()) do
+            if part:IsA('BasePart') then set(part,'CanCollide',false) end
+        end
+    end
     self:StaminaStep(character,hum)
     if w.TimeEnabled then set(Lighting,'ClockTime',w.Time) end
     if w.ExposureEnabled then set(Lighting,'ExposureCompensation',w.Exposure) end
@@ -206,10 +211,11 @@ function Tools:RunScript(name)
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
+    -- Apply collisions before the physics simulation as well as on UI changes.
+    connect(RunService.Stepped,function() self:Step() end)
     if workspace.DescendantAdded then connect(workspace.DescendantAdded,function(object) self:TrackPrompt(object) end) end
     local ok,prompts=pcall(game.GetService,game,'ProximityPromptService')
     if ok and prompts.PromptShown then connect(prompts.PromptShown,function(prompt) self:TrackPrompt(prompt); self:Step() end) end
-    connect(RunService.Heartbeat,function() self:Step() end)
     connect(Players.PlayerRemoving,function(player)
         if self.Selected==player then self.Selected=nil; self:SetSpectating(false) end
         self.engine.playerModes[player.UserId]=nil

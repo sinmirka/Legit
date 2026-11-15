@@ -18615,6 +18615,11 @@ function Tools:Step()
     self:InteractionStep(set)
     local character=Players.LocalPlayer.Character
     local hum=humanoid(Players.LocalPlayer)
+    if c.Noclip and character and hum and hum.Health>0 then
+        for _,part in ipairs(character:GetDescendants()) do
+            if part:IsA('BasePart') then set(part,'CanCollide',false) end
+        end
+    end
     self:StaminaStep(character,hum)
     if w.TimeEnabled then set(Lighting,'ClockTime',w.Time) end
     if w.ExposureEnabled then set(Lighting,'ExposureCompensation',w.Exposure) end
@@ -18680,10 +18685,11 @@ function Tools:RunScript(name)
 end
 function Tools:Start()
     local function connect(signal,callback) table.insert(self.connections,signal:Connect(callback)) end
+    -- Apply collisions before the physics simulation as well as on UI changes.
+    connect(RunService.Stepped,function() self:Step() end)
     if workspace.DescendantAdded then connect(workspace.DescendantAdded,function(object) self:TrackPrompt(object) end) end
     local ok,prompts=pcall(game.GetService,game,'ProximityPromptService')
     if ok and prompts.PromptShown then connect(prompts.PromptShown,function(prompt) self:TrackPrompt(prompt); self:Step() end) end
-    connect(RunService.Heartbeat,function() self:Step() end)
     connect(Players.PlayerRemoving,function(player)
         if self.Selected==player then self.Selected=nil; self:SetSpectating(false) end
         self.engine.playerModes[player.UserId]=nil
@@ -19024,7 +19030,7 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
-    Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false},
+    Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false},
     Interaction={Instant=false},
     World={TimeEnabled=false,Time=12,ExposureEnabled=false,Exposure=0,AmbientEnabled=false,
         Ambient=Color3.fromRGB(128,128,128),RemoveShadows=false,BloomEnabled=false,BloomIntensity=0.5,
@@ -19383,6 +19389,7 @@ local ok,message=xpcall(function()
     loot:AddButton({text='Refresh object ESP',callback=function() objects:Rescan(); library:SendNotification(objects.Status,5) end})
     loot:AddText({text='Independent of player ESP. Crate names/types/colours are used; verify current game layout.'})
     left,right=sections('Character','Criminality movement','Speed options')
+    toggle(left,'NoClip','Character','Noclip')
     left:AddText({text='Movement uses the horizontal velocity method from the Criminality reference. Server correction may still apply.'})
     toggle(right,'Velocity speed','Character','VelocitySpeed')
     slider(right,'Speed value','Character','Speed',0,150,1)
