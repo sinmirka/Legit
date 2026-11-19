@@ -94,6 +94,7 @@ local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
     Combat={WallBang=false},
+    DealerStock={Enabled=false,Notify=true,Items='All'},
     Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false,
         Spinbot=false,SpinSpeed=360,SpinPitch=70,JumpCooldown=false,JumpDelay=0.5},
     Interaction={Instant=false},
@@ -136,7 +137,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,silent,tools,logger,objects,scanner
+local engine,melee,silent,tools,logger,objects,scanner,stock
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -152,6 +153,7 @@ function app:DebugContext()
     data.InfiniteStamina=config.Character.InfiniteStamina
     data.StaminaTables=tools and #tools.staminaTables or 0
     data.InstantInteraction=config.Interaction.Instant
+    data.DealerStockStatus=stock and stock.Status or 'not started'
     data.ObjectESPStatus=objects and objects.Status or 'not started'
     data.SpeedMethod='Velocity'
     data.UI='Obsidian'
@@ -177,6 +179,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if stock then clean('dealer stock',function() stock:Destroy() end) end
     if scanner then clean('world scanner',function() scanner:Destroy() end) end
     if objects then clean('object ESP',function() objects:Destroy() end) end
     if tools then clean('universal tools',function() tools:Destroy() end) end
@@ -204,8 +207,10 @@ local ok,message=xpcall(function()
     scanner=remote('src/WorldScanner.lua')().new(); engine.Scanner=scanner; app.WorldScanner=scanner
     objects=remote('src/ObjectESP.lua')().new(config.ObjectESP,engine)
     app.ObjectESP=objects
+    stock=remote('src/DealerStock.lua')().new(config.DealerStock,scanner,library); app.DealerStock=stock
     library.unloaded:Connect(function()
         if silent then pcall(silent.Destroy,silent) end
+        if stock then pcall(stock.Destroy,stock) end
         if scanner then pcall(scanner.Destroy,scanner) end
         if objects then pcall(objects.Destroy,objects) end
         if tools then pcall(tools.Destroy,tools) end
@@ -225,6 +230,7 @@ local ok,message=xpcall(function()
     local function refreshTools(group)
         if group=='Character' or group=='World' or group=='Interaction' then tools:Step() end
         if group=='ObjectESP' and objects then objects:Step() end
+        if group=='DealerStock' and stock then stock:Step() end
     end
     local function flag(group,key) return group..'_'..key end
     local function remember(group,key,option,kind,choices)
@@ -440,6 +446,13 @@ local ok,message=xpcall(function()
     slider(loot,'Object fill transparency','ObjectESP','FillTransparency',0,1,0.05)
     loot:AddButton({text='Refresh object ESP',callback=function() objects:Rescan(); library:SendNotification(objects.Status,5) end})
     loot:AddText({text='Independent of player ESP. Crate names/types/colours are used; verify current game layout.'})
+    local dealerStock=tabs.World:AddSection('Dealer stock',2)
+    toggle(dealerStock,'Dealer Stock Checker','DealerStock','Enabled')
+    toggle(dealerStock,'Notify stock changes','DealerStock','Notify')
+    remember('DealerStock','Items',dealerStock:AddBox({text='Items (All or comma separated)',flag='DealerStock_Items',input=config.DealerStock.Items,
+        callback=function(value) config.DealerStock.Items=value; stock:Step() end}),'text')
+    dealerStock:AddButton({text='Show dealer stock',callback=function() library:SendNotification(stock.Status..'\n'..stock.Text,10) end})
+    dealerStock:AddText({text='Reads stock values available on this client. Missing values are not treated as sold out.'})
     left,right=sections('Character','Criminality movement','Speed options')
     toggle(left,'NoClip','Character','Noclip')
     toggle(left,'Spinbot','Character','Spinbot')
@@ -553,6 +566,7 @@ local ok,message=xpcall(function()
     end) end})
     local function applyEntry(entry,value)
         if entry.Kind=='toggle' then assert(type(value)=='boolean'); entry.Option:SetState(value)
+        elseif entry.Kind=='text' then assert(type(value)=='string' and #value<=256); entry.Option:SetInput(value)
         elseif entry.Kind=='slider' then assert(type(value)=='number' and value==value and math.abs(value)<math.huge); entry.Option:SetValue(value)
         elseif entry.Kind=='list' then assert(table.find(entry.Choices,value)); entry.Option:Select(value)
         elseif entry.Kind=='color' then
@@ -658,6 +672,7 @@ local ok,message=xpcall(function()
     tools:Start()
     scanner:Start()
     objects:Start()
+    stock:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end

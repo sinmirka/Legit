@@ -19368,6 +19368,96 @@ function Scanner:Destroy()
 end
 return Scanner
 ]====]
+files["src/DealerStock.lua"]=[====[-- Read client-replicated dealer values using the shared incremental scanner.
+local RunService=game:GetService('RunService')
+local Stock={}
+Stock.__index=Stock
+local function dealerOf(object)
+    local found
+    for _=1,20 do
+        object=object.Parent
+        if not object or object==workspace then return found end
+        local name=object.Name:lower()
+        if name=='characters' then return end
+        if name:find('dealer',1,true) or name:find('stock',1,true) or name:find('armory',1,true)
+            or name=='legalstore' or name=='illegalstore' then found=object end
+    end
+    return found
+end
+function Stock.new(config,scanner,library)
+    return setmetatable({config=config,scanner=scanner,library=library,alive=true,entries={},seen={},previous={},
+        Status='Disabled',Text='No stock values found',cursor=1,rows={},changes={}},Stock)
+end
+function Stock:Matches(name)
+    local filter=self.config.Items:lower()
+    if filter=='' or filter=='all' then return true end
+    for item in filter:gmatch('[^,]+') do
+        item=item:match('^%s*(.-)%s*$')
+        if item~='' and name:lower():find(item,1,true) then return true end
+    end
+    return false
+end
+function Stock:Add(object)
+    if not self.config.Enabled or self.seen[object] or #self.entries>=1024 then return end
+    if not (object:IsA('IntValue') or object:IsA('NumberValue') or object:IsA('StringValue') or object:IsA('BoolValue')) then return end
+    local dealer=dealerOf(object)
+    if dealer then self.seen[object]=true; table.insert(self.entries,{Object=object,Dealer=dealer}) end
+end
+function Stock:Step()
+    if not self.alive then return end
+    if not self.config.Enabled then
+        self.enabled=false; self.entries={}; self.seen={}; self.previous={}; self.baseline=false
+        self.cursor=1; self.rows={}; self.changes={}; self.Text='No stock values found'; self.Status='Disabled'; return
+    end
+    if not self.enabled then self.enabled=true; self.scanner:Request(); self.Status='Scanning dealer stock' end
+    local filter=self.config.Items
+    if filter~=self.filter then self.filter=filter; self.cursor=1; self.rows={}; self.changes={}; self.baseline=false end
+    for _=1,32 do
+        local entry=self.entries[self.cursor]
+        if not entry then break end
+        local object,dealer=entry.Object,entry.Dealer
+        if object.Parent and dealer.Parent and object:IsDescendantOf(dealer) then
+            if self:Matches(object.Name) then
+                local value=tostring(object.Value)
+                table.insert(self.rows,dealer.Name..' / '..object.Name..': '..value)
+                if self.baseline and self.previous[object]~=value then table.insert(self.changes,object.Name..': '..value) end
+                self.previous[object]=value
+            end
+        else
+            self.seen[object]=nil; self.previous[object]=nil
+            table.remove(self.entries,self.cursor); self.cursor-=1
+        end
+        self.cursor+=1
+    end
+    if self.cursor>#self.entries then
+        table.sort(self.rows)
+        local count=#self.rows
+        self.Text=count>0 and table.concat(self.rows,'\n',1,math.min(count,128)) or 'No stock values found for this filter'
+        self.Status=string.format('%d stock values%s',count,self.scanner.Scanning and ' (scanning)' or '')
+        if self.baseline and self.config.Notify and #self.changes>0 then
+            self.library:SendNotification('Dealer stock changed: '..table.concat(self.changes,', ',1,math.min(#self.changes,8)),6)
+        end
+        if not self.scanner.Scanning then self.baseline=true end
+        self.cursor=1; self.rows={}; self.changes={}
+    end
+end
+function Stock:Start()
+    self.subscription=self.scanner:Subscribe(function(object) self:Add(object) end)
+    local nextStep=0
+    self.heartbeat=RunService.Heartbeat:Connect(function()
+        if os.clock()<nextStep then return end; nextStep=os.clock()+0.1
+        local ok,problem=pcall(self.Step,self)
+        if not ok then self.Status='Stock error: '..tostring(problem) end
+    end)
+end
+function Stock:Destroy()
+    self.alive=false
+    if self.subscription then self.subscription:Disconnect() end
+    if self.heartbeat then self.heartbeat:Disconnect() end
+    self.entries={}; self.seen={}; self.previous={}; self.rows={}; self.changes={}
+end
+return Stock
+]====]
 files["src/Diagnostics.lua"]=[====[-- Bounded local diagnostics. No network transport; file/clipboard export is explicit.
 local Diagnostics={}
 Diagnostics.__index=Diagnostics
@@ -19542,6 +19632,7 @@ local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
     Combat={WallBang=false},
+    DealerStock={Enabled=false,Notify=true,Items='All'},
     Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false,
         Spinbot=false,SpinSpeed=360,SpinPitch=70,JumpCooldown=false,JumpDelay=0.5},
     Interaction={Instant=false},
@@ -19584,7 +19675,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,silent,tools,logger,objects,scanner
+local engine,melee,silent,tools,logger,objects,scanner,stock
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -19600,6 +19691,7 @@ function app:DebugContext()
     data.InfiniteStamina=config.Character.InfiniteStamina
     data.StaminaTables=tools and #tools.staminaTables or 0
     data.InstantInteraction=config.Interaction.Instant
+    data.DealerStockStatus=stock and stock.Status or 'not started'
     data.ObjectESPStatus=objects and objects.Status or 'not started'
     data.SpeedMethod='Velocity'
     data.UI='Obsidian'
@@ -19625,6 +19717,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if stock then clean('dealer stock',function() stock:Destroy() end) end
     if scanner then clean('world scanner',function() scanner:Destroy() end) end
     if objects then clean('object ESP',function() objects:Destroy() end) end
     if tools then clean('universal tools',function() tools:Destroy() end) end
@@ -19652,8 +19745,10 @@ local ok,message=xpcall(function()
     scanner=remote('src/WorldScanner.lua')().new(); engine.Scanner=scanner; app.WorldScanner=scanner
     objects=remote('src/ObjectESP.lua')().new(config.ObjectESP,engine)
     app.ObjectESP=objects
+    stock=remote('src/DealerStock.lua')().new(config.DealerStock,scanner,library); app.DealerStock=stock
     library.unloaded:Connect(function()
         if silent then pcall(silent.Destroy,silent) end
+        if stock then pcall(stock.Destroy,stock) end
         if scanner then pcall(scanner.Destroy,scanner) end
         if objects then pcall(objects.Destroy,objects) end
         if tools then pcall(tools.Destroy,tools) end
@@ -19673,6 +19768,7 @@ local ok,message=xpcall(function()
     local function refreshTools(group)
         if group=='Character' or group=='World' or group=='Interaction' then tools:Step() end
         if group=='ObjectESP' and objects then objects:Step() end
+        if group=='DealerStock' and stock then stock:Step() end
     end
     local function flag(group,key) return group..'_'..key end
     local function remember(group,key,option,kind,choices)
@@ -19888,6 +19984,13 @@ local ok,message=xpcall(function()
     slider(loot,'Object fill transparency','ObjectESP','FillTransparency',0,1,0.05)
     loot:AddButton({text='Refresh object ESP',callback=function() objects:Rescan(); library:SendNotification(objects.Status,5) end})
     loot:AddText({text='Independent of player ESP. Crate names/types/colours are used; verify current game layout.'})
+    local dealerStock=tabs.World:AddSection('Dealer stock',2)
+    toggle(dealerStock,'Dealer Stock Checker','DealerStock','Enabled')
+    toggle(dealerStock,'Notify stock changes','DealerStock','Notify')
+    remember('DealerStock','Items',dealerStock:AddBox({text='Items (All or comma separated)',flag='DealerStock_Items',input=config.DealerStock.Items,
+        callback=function(value) config.DealerStock.Items=value; stock:Step() end}),'text')
+    dealerStock:AddButton({text='Show dealer stock',callback=function() library:SendNotification(stock.Status..'\n'..stock.Text,10) end})
+    dealerStock:AddText({text='Reads stock values available on this client. Missing values are not treated as sold out.'})
     left,right=sections('Character','Criminality movement','Speed options')
     toggle(left,'NoClip','Character','Noclip')
     toggle(left,'Spinbot','Character','Spinbot')
@@ -20001,6 +20104,7 @@ local ok,message=xpcall(function()
     end) end})
     local function applyEntry(entry,value)
         if entry.Kind=='toggle' then assert(type(value)=='boolean'); entry.Option:SetState(value)
+        elseif entry.Kind=='text' then assert(type(value)=='string' and #value<=256); entry.Option:SetInput(value)
         elseif entry.Kind=='slider' then assert(type(value)=='number' and value==value and math.abs(value)<math.huge); entry.Option:SetValue(value)
         elseif entry.Kind=='list' then assert(table.find(entry.Choices,value)); entry.Option:Select(value)
         elseif entry.Kind=='color' then
@@ -20106,6 +20210,7 @@ local ok,message=xpcall(function()
     tools:Start()
     scanner:Start()
     objects:Start()
+    stock:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end
