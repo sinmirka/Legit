@@ -276,10 +276,7 @@ function Engine:Colors(other, visible)
     local friend=self:FriendColor(other)
     local e, c = self.config.ESP, self.config.Colors
     local fillKey,outlineKey='Fill','Outline'
-    if e.VisibleColors then fillKey,outlineKey=visible and 'VisibleFill' or 'HiddenFill',visible and 'VisibleOutline' or 'HiddenOutline' end
     local fill,outline=c[fillKey],c[outlineKey]
-    if e.TeamColors and not other.Neutral then fill,outline=other.TeamColor.Color,other.TeamColor.Color; fillKey,outlineKey='Fill','Outline' end
-    if e.TargetColor and other == self.target then fill,outline=c.Target,c.Target; fillKey,outlineKey='Target','Target' end
     if friend then fill,outline=friend,friend end
     if e.HealthColors then
         local hum=other.Character and other.Character:FindFirstChildOfClass('Humanoid')

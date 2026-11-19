@@ -21,7 +21,7 @@ local function button(label)
     end end
     error('Missing button '..label)
 end
-button('Start melee capture').callback()
+button('Start debug capture').callback()
 assert(app.Config.Debug.Enabled and app.Config.Debug.CaptureRays,'capture enables diagnostics only')
 assert(not app.Config.Melee.Enabled,'capture does not enable attacks')
 local aura=app.MeleeAura

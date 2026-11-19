@@ -142,7 +142,7 @@ tested:Aim(camera,localRoot,1/60)
 assert(tested.target and camera.CFrame.LastAlpha and camera.CFrame.LastAlpha>0,'camera smoothing')
 print('PASS teams, neutral, friends, R6, missing parts, death, range, FOV, walls, prediction, delay, sticky, priorities and aim pause')
 e.Enabled=true; e.VisibleColors=true; e.TargetColor=false
-app.Config.Alpha.Colors_VisibleFill=0.3
+app.Config.Alpha.Colors_Fill=0.3
 -- Legacy visual fields cannot recreate removed renderers or effects.
 app.Config.Overlay={Box=true,BoxFill=true,Skeleton=true,Tracers=true,HealthBar=true}
 e.Rainbow=true; e.Pulse=true; e.Fade=true; e.Opacity=0

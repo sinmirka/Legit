@@ -142,8 +142,7 @@ assert(lighting.ClockTime==3 and c.Speed==35 and c.VelocitySpeed and newHum.Walk
 local clipboard
 setclipboard=function(text) clipboard=text end
 game.PlaceId=123; game.JobId='test-server'
-button('Copy server info').callback()
-assert(clipboard=='PlaceId: 123\nJobId: test-server','copy server information')
+-- Server info copy is no longer exposed; rejoin remains available.
 local teleported
 MOCK.services.TeleportService={TeleportToPlaceInstance=function(_,place,job,player) teleported={place,job,player} end}
 button('Rejoin server').callback()
@@ -194,7 +193,7 @@ getgc=function(includeTables)
     assert(includeTables,'include GC tables')
     scans+=1; return {stamina,empty,frozen,invalid,large,{S=0/0},function() end}
 end
-button('Rescan stamina').callback()
+tools:RescanStamina(); tools:Step()
 assert(scans==1 and stamina.S==100 and empty.S==100 and frozen.S==35 and invalid.S=='hello' and large.S==250,'only mutable numeric 0..100 S candidates updated')
 for _=1,100 do stamina.S=10; tools:Step() end
 assert(scans==1 and stamina.S==100,'cached refill without per-frame GC scan')
@@ -209,11 +208,11 @@ players.LocalPlayer.Character=oldCharacter; local beforeScan=scans; tools:Step()
 assert(scans==beforeScan+1,'respawn rescans')
 local many={}; for index=1,200 do many[index]={S=50} end
 getgc=function() return many end
-button('Rescan stamina').callback(); assert(#tools.staminaTables==128 and many[129].S==50,'bounded candidate cache')
+tools:RescanStamina(); tools:Step(); assert(#tools.staminaTables==128 and many[129].S==50,'bounded candidate cache')
 getgc=function() error('unsupported') end
-button('Rescan stamina').callback(); assert(tools.StaminaStatus:find('failed',1,true),'scan failure isolated')
+tools:RescanStamina(); tools:Step(); assert(tools.StaminaStatus:find('failed',1,true),'scan failure isolated')
 getgc=function() return {stamina} end
-button('Rescan stamina').callback()
+tools:RescanStamina(); tools:Step()
 option('World_ColorEnabled'):SetState(true); local colorEffect=tools.effects.ColorCorrection
 option('Interaction_Instant'):SetState(true)
 local connection=tools.connections[1]
