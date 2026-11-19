@@ -7,7 +7,7 @@ export const read = path => readFileSync(resolve(root, path), 'utf8').replace(/\
 export const sources = [
   'vendor/Obsidian/Lucide.lua', 'vendor/Obsidian/Library.lua', 'src/ObsidianUI.lua',
   'src/Engine.lua', 'src/GuiDrawing.lua', 'src/MeleeAura.lua', 'src/SilentAim.lua',
-  'src/UniversalTools.lua', 'src/ObjectESP.lua', 'src/WorldScanner.lua', 'src/DealerStock.lua', 'src/Diagnostics.lua', 'main.lua',
+  'src/UniversalTools.lua', 'src/ObjectESP.lua', 'src/WorldScanner.lua', 'src/DealerStock.lua', 'src/ProjectileControl.lua', 'src/Diagnostics.lua', 'main.lua',
 ];
 export function literal(text) {
   let equals = '====';

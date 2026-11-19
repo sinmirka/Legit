@@ -95,6 +95,7 @@ local config={
     Debug={Enabled=false,Console=false,CaptureRays=false},
     Combat={WallBang=false},
     DealerStock={Enabled=false,Notify=true,Items='All'},
+    Projectiles={C4=false,Rockets=false,Speed=100},
     Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false,
         Spinbot=false,SpinSpeed=360,SpinPitch=70,JumpCooldown=false,JumpDelay=0.5},
     Interaction={Instant=false},
@@ -137,7 +138,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,silent,tools,logger,objects,scanner,stock
+local engine,melee,silent,tools,logger,objects,scanner,stock,projectiles
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -153,6 +154,7 @@ function app:DebugContext()
     data.InfiniteStamina=config.Character.InfiniteStamina
     data.StaminaTables=tools and #tools.staminaTables or 0
     data.InstantInteraction=config.Interaction.Instant
+    data.ProjectileStatus=projectiles and projectiles.Status or 'not started'
     data.DealerStockStatus=stock and stock.Status or 'not started'
     data.ObjectESPStatus=objects and objects.Status or 'not started'
     data.SpeedMethod='Velocity'
@@ -179,6 +181,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if projectiles then clean('projectile control',function() projectiles:Destroy() end) end
     if stock then clean('dealer stock',function() stock:Destroy() end) end
     if scanner then clean('world scanner',function() scanner:Destroy() end) end
     if objects then clean('object ESP',function() objects:Destroy() end) end
@@ -208,8 +211,11 @@ local ok,message=xpcall(function()
     objects=remote('src/ObjectESP.lua')().new(config.ObjectESP,engine)
     app.ObjectESP=objects
     stock=remote('src/DealerStock.lua')().new(config.DealerStock,scanner,library); app.DealerStock=stock
+    projectiles=remote('src/ProjectileControl.lua')().new(config.Projectiles,engine,tools)
+    app.ProjectileControl=projectiles; engine.ProjectileController=projectiles
     library.unloaded:Connect(function()
         if silent then pcall(silent.Destroy,silent) end
+        if projectiles then pcall(projectiles.Destroy,projectiles) end
         if stock then pcall(stock.Destroy,stock) end
         if scanner then pcall(scanner.Destroy,scanner) end
         if objects then pcall(objects.Destroy,objects) end
@@ -231,6 +237,7 @@ local ok,message=xpcall(function()
         if group=='Character' or group=='World' or group=='Interaction' then tools:Step() end
         if group=='ObjectESP' and objects then objects:Step() end
         if group=='DealerStock' and stock then stock:Step() end
+        if group=='Projectiles' and projectiles then projectiles:Step(0) end
     end
     local function flag(group,key) return group..'_'..key end
     local function remember(group,key,option,kind,choices)
@@ -424,6 +431,12 @@ local ok,message=xpcall(function()
     local combat=tabs.Combat:AddSection('Combat',1)
     toggle(combat,'Wall Bang','Combat','WallBang')
     combat:AddText({text='Allows aim targets behind walls. Server damage depends on game hit validation.'})
+    local projectileSection=tabs.Misc:AddSection('C4 and rocket control',2)
+    toggle(projectileSection,'C4 Control','Projectiles','C4')
+    toggle(projectileSection,'Rocket control','Projectiles','Rockets')
+    slider(projectileSection,'Projectile speed','Projectiles','Speed',20,350,10,' studs/s')
+    projectileSection:AddButton({text='Release projectile (X)',callback=function() projectiles.pending={}; projectiles:Release('Released') end})
+    projectileSection:AddText({text='Launch C4 or a rocket normally, then steer with the camera. X releases control.'})
     local stamina=tabs.Character:AddSection('Criminality / Stamina',1)
     toggle(stamina,'Infinite stamina','Character','InfiniteStamina')
     stamina:AddButton({text='Rescan stamina',callback=function() tools:RescanStamina(); tools:Step(); library:SendNotification(tools.StaminaStatus,6) end})
@@ -673,6 +686,7 @@ local ok,message=xpcall(function()
     scanner:Start()
     objects:Start()
     stock:Start()
+    projectiles:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end

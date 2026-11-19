@@ -272,7 +272,10 @@ function Tools:SetSelected(player)
     self.Selected=player
     self:Step()
 end
-function Tools:SetSpectating(value) self.Spectating=value; self:Step() end
+function Tools:SetSpectating(value)
+    if value and self.engine.ProjectileController then self.engine.ProjectileController:Release('Spectating selected player') end
+    self.Spectating=value; self:Step()
+end
 function Tools:PlayerList(query)
     query=(query or ''):lower()
     local values,map={},{}

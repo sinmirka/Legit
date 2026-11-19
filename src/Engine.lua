@@ -183,6 +183,7 @@ function Engine:KeyDown()
     return ok and down or (not ok and self.held) or false
 end
 function Engine:Aim(camera, root, dt)
+    if self.ProjectileControl then self:ResetTarget(); self.Status='Aimbot: projectile control'; return end
     local a = self.config.Aim
     local active = a.Mode == 'Always' or (a.Mode == 'Hold' and self.held) or (a.Mode == 'Toggle' and self.toggled)
     local blocked

@@ -65,6 +65,7 @@ function MeleeAura:StatusTo(value)
     if self.logger then self.logger:State('Melee','status',value) end
 end
 function MeleeAura:BlockReason()
+    if self.engine.ProjectileControl then return 'projectile control' end
     if not self.alive then return 'unloaded' end
     if not self.config.Enabled then return 'disabled' end
     if not self.engine.focused then return 'unfocused' end

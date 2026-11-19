@@ -110,7 +110,7 @@ function Silent:Visualize(_,identifier,_,tool,_,origin,directions)
         self:Log('trace','visualize.skip',reason,nil,0.5)
     end
     self:Count('visualize.seen')
-    if not self.alive or not s.Enabled or s.Universal or not self.engine.focused
+    if not self.alive or not s.Enabled or s.Universal or self.engine.ProjectileControl or not self.engine.focused
         or Input:GetFocusedTextBox() or self.library:IsInteracting() or self.library:IsPointerOverUI()
         or (s.PauseMenu and self.library.open) then return skip('paused by input / menu / mode') end
     local character=Players.LocalPlayer.Character
@@ -313,7 +313,7 @@ function Silent:Step(now)
     if not self.alive or not s.Enabled then self:Reset(); self:SetStatus('Disabled'); return end
     local unavailable=self:CapabilityProblem()
     if unavailable then self:Reset(); self:SetStatus(unavailable); return end
-    if not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
+    if self.engine.ProjectileControl or not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
         or self.library:IsPointerOverUI() or (s.PauseMenu and self.library.open) then
         self:Reset(); self:SetStatus('Paused by input / menu'); return
     end
