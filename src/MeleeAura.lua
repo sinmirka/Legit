@@ -1,4 +1,4 @@
--- Redirect real melee hitbox rays; the game still performs hit registration.
+-- Criminality remote protocol, with a raycast adapter for other game layouts.
 local Players=game:GetService('Players')
 local RunService=game:GetService('RunService')
 local Input=game:GetService('UserInputService')
@@ -73,6 +73,8 @@ function MeleeAura:BlockReason()
     if self.config.PauseMenu and self.library.open then return 'menu open' end
 end
 function MeleeAura:Reset()
+    self.attackGeneration=(self.attackGeneration or 0)+1
+    self.pendingAttack=nil
     self.target,self.prepared,self.swingUntil=nil,nil,0
 end
 function MeleeAura:Blocked()
@@ -87,12 +89,14 @@ function MeleeAura:DownedState(player,character,humanoid)
     local containers={character,humanoid}
     if stats then table.insert(containers,stats) end
     for _,container in ipairs(containers) do
-        local flag=container:FindFirstChild('Downed')
-        if flag and flag:IsA('BoolValue') then
-            table.insert(flags,flag)
-            if flag.Value==true then downed=true end
+        for _,name in ipairs({'Downed','Ragdolled','Ragdoll'}) do
+            local flag=container:FindFirstChild(name)
+            if flag and flag:IsA('BoolValue') then
+                table.insert(flags,flag)
+                if flag.Value==true then downed=true end
+            end
+            if container:GetAttribute(name)==true then downed=true end
         end
-        if container:GetAttribute('Downed')==true then downed=true end
     end
     local state=humanoid:GetState()
     if humanoid.PlatformStand or state==Enum.HumanoidStateType.Ragdoll
@@ -113,7 +117,11 @@ function MeleeAura:Candidate(player,root)
     if humanoid.Health<s.MinHealth then return nil,'minimum HP' end
     if s.SkipForceField and character:FindFirstChildOfClass('ForceField') then return nil,'ForceField' end
     local part=character:FindFirstChild(s.Part)
-    if not part and s.Part=='UpperTorso' then part=character:FindFirstChild('Torso') end
+    if not part then
+        local r6={UpperTorso='Torso',LowerTorso='Torso',LeftUpperArm='Left Arm',RightUpperArm='Right Arm',
+            LeftUpperLeg='Left Leg',RightUpperLeg='Right Leg'}
+        if r6[s.Part] then part=character:FindFirstChild(r6[s.Part]) end
+    end
     if not part or not part:IsA('BasePart') then return nil,'body part' end
     local delta=part.Position-root.Position
     if delta.Magnitude>s.Range or delta.Magnitude<0.001 then return nil,'range' end
@@ -136,16 +144,79 @@ function MeleeAura:Equip(tool)
                 self.swingUntil=os.clock()+self.config.SwingWindow
                 self:Count('swing.Activated')
                 self:Log('trace','swing','Tool.Activated observed',nil,0.5)
+                if self.Backend=='Criminality remotes' and not self.config.AutoAttack then self:AttackRemotes(os.clock()) end
             end
         end)
     end
 end
+function MeleeAura:RemoteObjects()
+    local events=ReplicatedStorage:FindFirstChild('Events')
+    local start=events and events:FindFirstChild('XMHH.2')
+    local hit=events and events:FindFirstChild('XMHH2.2')
+    if start and start:IsA('RemoteEvent') and hit and hit:IsA('RemoteEvent') then return start,hit end
+end
 function MeleeAura:CapabilityProblem()
+    if self:RemoteObjects() then return end
+    return self:RaycastCapabilityProblem()
+end
+function MeleeAura:RaycastCapabilityProblem()
     local missing={}
     for _,name in ipairs({'hookmetamethod','getnamecallmethod','checkcaller','getcallingscript'}) do
         if type(getfenv()[name])~='function' then table.insert(missing,name) end
     end
     if #missing>0 then return 'Unavailable: missing '..table.concat(missing,', ') end
+end
+local weaponDelays={fists=0.05,knuckledusters=0.05,nunchucks=0.05,shiv=0.05,bat=1,
+    metalbat=1,chainsaw=2.5,balisong=0.05,rambo=0.3,shovel=3,sledgehammer=2,
+    katana=0.1,wrench=0.1,fireaxe=2}
+local function shotIdentifier()
+    local letters=table.create(31)
+    for index=1,30 do letters[index]=string.char(math.random(97,122)) end
+    letters[31]='0'
+    return table.concat(letters)
+end
+function MeleeAura:AttackRemotes(now)
+    local p=self.prepared
+    if self.pendingAttack or now<self.nextAttack or self:Blocked() or not p then return end
+    local start,hit=self:RemoteObjects()
+    if not start then return end
+    local tool,target=p.Tool,p.Target
+    local generation=self.attackGeneration or 0
+    local function valid()
+        if generation~=(self.attackGeneration or 0) or self:Blocked()
+            or Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0
+            or tool.Parent~=p.Character or not tool.Enabled or target.Player.Character~=target.Character
+            or target.Player.Parent~=Players or target.Part.Parent~=target.Character then return false end
+        local candidate=self:Candidate(target.Player,p.Root)
+        return candidate and candidate.Part==target.Part
+    end
+    if not valid() then return end
+    self.nextAttack=now+math.max(self.config.Interval,weaponDelays[weaponKey(tool.Name)] or 0.5)
+    local token={}; self.pendingAttack=token
+    task.spawn(function()
+        local ok,problem=pcall(function()
+            -- Match the reference swing handshake. Only use a unique function;
+            -- an arbitrary first RemoteFunction may belong to another system.
+            local swing
+            for _,object in ipairs(ReplicatedStorage:GetDescendants()) do
+                if object:IsA('RemoteFunction') then
+                    if swing then swing=nil; break end
+                    swing=object
+                end
+            end
+            if swing then swing:InvokeServer(utf8.char(127838),tick(),target.Part,'43TRFWX','Normal',tick(),true) end
+            task.wait(0.3)
+            if not valid() then return end
+            local identifier=shotIdentifier()
+            start:FireServer(tick(),identifier,tool,'43TRFWX',p.Root.Position,{target.Part},false)
+            hit:FireServer(utf8.char(129480),tool,identifier,1,target.Part,target.Part.Position,nil)
+            self:Count('remote.reported')
+            self:Log('trace','remote.hit','Melee hit report sent; server damage unconfirmed',
+                {Weapon=tool.Name,Target=target.Player.Name},0.5)
+        end)
+        if self.pendingAttack==token then self.pendingAttack=nil end
+        if not ok then self:Log('error','remote.attack',tostring(problem),nil,1) end
+    end)
 end
 function MeleeAura:InstallHook()
     if self.hook then return true end
@@ -292,7 +363,11 @@ function MeleeAura:Step(now)
     end
     local blocked=self:BlockReason()
     if blocked then self:Reset(); self:StatusTo(self.config.Enabled and ('Paused: '..blocked) or 'Disabled'); return end
-    if not self:InstallHook() then self:Reset(); return end
+    local remote=self:RemoteObjects()~=nil
+    self.Backend=remote and 'Criminality remotes' or 'Raycast'
+    if remote then
+        if self.hook and self.hook.Owner==self then self.hook.Owner=nil end
+    elseif not self:InstallHook() then self:Reset(); return end
     local character,humanoid,root=rig(Players.LocalPlayer)
     local tool=character and character:FindFirstChildOfClass('Tool')
     if not character then self:Equip(nil); self:Reset(); self:StatusTo('Waiting for local character'); return end
@@ -319,8 +394,8 @@ function MeleeAura:Step(now)
         self.lastSummary=now
         self:Log('info','summary','Cumulative counters (target skips count heartbeat evaluations)',self.Counters)
     end
-    if best and self.config.AutoAttack and now>=self.nextAttack then
-        self.nextAttack=now+self.config.Interval
+    if best and self.config.AutoAttack and now>=self.nextAttack and not self.pendingAttack then
+        if remote then self:AttackRemotes(now) else self.nextAttack=now+self.config.Interval end
         self.swingUntil=now+self.config.SwingWindow
         self:Count('activation.attempted')
         local ok,problem=pcall(function() tool:Activate() end)

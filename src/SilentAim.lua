@@ -73,7 +73,7 @@ function Silent:FastCastModule()
     return module and module:IsA('ModuleScript') and module or nil
 end
 function Silent:CapabilityProblem()
-    if self.config.Universal then return self.melee:CapabilityProblem() end
+    if self.config.Universal then return self.melee:RaycastCapabilityProblem() end
     if self:VisualizeObjects() then return end
     for _,name in ipairs({'hookfunction','checkcaller'}) do
         if type(getfenv()[name])~='function' then return 'Unavailable: missing '..name end

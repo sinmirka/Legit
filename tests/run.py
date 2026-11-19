@@ -38,7 +38,7 @@ bundle += (root / 'tests/roblox_mock.luau').read_text(encoding='utf-8')
 bundle += (root / 'tests/obsidian_mock.luau').read_text(encoding='utf-8')
 directory = root / '.test-work'
 directory.mkdir(exist_ok=True)
-for name in ['integration', 'obsidian_ui', 'bundle', 'melee', 'universal', 'spin', 'jump_limit', 'diagnostics', 'silent', 'silent_visualize', 'silent_universal', 'silent_autofire', 'silent_cycle', 'objects']:
+for name in ['integration', 'obsidian_ui', 'bundle', 'melee', 'melee_remotes', 'universal', 'spin', 'jump_limit', 'diagnostics', 'silent', 'silent_visualize', 'silent_universal', 'silent_autofire', 'silent_cycle', 'objects']:
     script = directory / (name + '.luau')
     script.write_text(bundle + (root / 'tests' / (name + '.luau')).read_text(encoding='utf-8'), encoding='utf-8')
     subprocess.run([args.luau, str(script)], check=True)
