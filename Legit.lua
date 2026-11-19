@@ -19584,6 +19584,70 @@ function Control:Destroy()
 end
 return Control
 ]====]
+files["src/ToyTools.lua"]=[====[local Players=game:GetService('Players')
+local RunService=game:GetService('RunService')
+local Toys={}
+Toys.__index=Toys
+function Toys.new(config)
+    return setmetatable({config=config,alive=true,connections={},Status='Disabled'},Toys)
+end
+function Toys:Stop()
+    if self.track then pcall(self.track.Stop,self.track); pcall(self.track.Destroy,self.track); self.track=nil end
+end
+function Toys:Remove()
+    self:Stop()
+    for _,connection in ipairs(self.connections) do connection:Disconnect() end
+    self.connections={}
+    if self.tool then local tool=self.tool; self.tool=nil; tool:Destroy() end
+end
+function Toys:Activate()
+    if self.track then self:Stop(); self.Status='Jerk Tool ready'; return end
+    local character=Players.LocalPlayer.Character
+    local humanoid=character and character:FindFirstChildOfClass('Humanoid')
+    if not self.alive or not self.config.Jerk or not humanoid or humanoid.Health<=0 then return end
+    local animation=Instance.new('Animation')
+    animation.AnimationId=humanoid.RigType==Enum.HumanoidRigType.R15 and 'rbxassetid://698251653' or 'rbxassetid://72042024'
+    local animator=humanoid:FindFirstChildOfClass('Animator') or humanoid
+    local ok,track=pcall(animator.LoadAnimation,animator,animation)
+    animation:Destroy()
+    if not ok then self.Status='Animation unavailable: '..tostring(track); return end
+    self.track=track; track.Looped=true
+    local played,problem=pcall(track.Play,track)
+    if not played then self:Stop(); self.Status='Animation unavailable: '..tostring(problem); return end
+    self.Status='Jerk animation playing; activate again to stop'
+end
+function Toys:Step()
+    if not self.alive then return end
+    if not self.config.Jerk then self:Remove(); self.Status='Disabled'; return end
+    local character=Players.LocalPlayer.Character
+    local backpack=Players.LocalPlayer:FindFirstChildOfClass('Backpack')
+    if self.character~=character then self:Remove(); self.character=character end
+    local humanoid=character and character:FindFirstChildOfClass('Humanoid')
+    if not humanoid or humanoid.Health<=0 then self:Stop() end
+    if self.tool and self.tool.Parent~=backpack and self.tool.Parent~=character then self:Remove() end
+    if not self.tool and backpack then
+        local tool=Instance.new('Tool'); tool.Name='Jerk'; tool.RequiresHandle=false; tool.CanBeDropped=false
+        self.tool=tool
+        table.insert(self.connections,tool.Activated:Connect(function() self:Activate() end))
+        if tool.Unequipped then table.insert(self.connections,tool.Unequipped:Connect(function() self:Stop() end)) end
+        table.insert(self.connections,tool.Destroying:Connect(function() self:Stop() end))
+        tool.Parent=backpack; self.Status='Jerk Tool ready'
+    elseif not backpack then self.Status='Waiting for backpack' end
+end
+function Toys:Start()
+    local nextStep=0
+    self.heartbeat=RunService.Heartbeat:Connect(function()
+        if os.clock()<nextStep then return end; nextStep=os.clock()+0.25
+        local ok,problem=pcall(self.Step,self)
+        if not ok then self:Stop(); self.Status='Tool error: '..tostring(problem) end
+    end)
+end
+function Toys:Destroy()
+    self.alive=false; self:Remove()
+    if self.heartbeat then self.heartbeat:Disconnect() end
+end
+return Toys
+]====]
 files["src/Diagnostics.lua"]=[====[-- Bounded local diagnostics. No network transport; file/clipboard export is explicit.
 local Diagnostics={}
 Diagnostics.__index=Diagnostics
@@ -19760,6 +19824,7 @@ local config={
     Combat={WallBang=false},
     DealerStock={Enabled=false,Notify=true,Items='All'},
     Projectiles={C4=false,Rockets=false,Speed=100},
+    Fun={Jerk=false},
     Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false,
         Spinbot=false,SpinSpeed=360,SpinPitch=70,JumpCooldown=false,JumpDelay=0.5},
     Interaction={Instant=false},
@@ -19802,7 +19867,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,silent,tools,logger,objects,scanner,stock,projectiles
+local engine,melee,silent,tools,logger,objects,scanner,stock,projectiles,toys
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -19845,6 +19910,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if toys then clean('toy tools',function() toys:Destroy() end) end
     if projectiles then clean('projectile control',function() projectiles:Destroy() end) end
     if stock then clean('dealer stock',function() stock:Destroy() end) end
     if scanner then clean('world scanner',function() scanner:Destroy() end) end
@@ -19877,8 +19943,10 @@ local ok,message=xpcall(function()
     stock=remote('src/DealerStock.lua')().new(config.DealerStock,scanner,library); app.DealerStock=stock
     projectiles=remote('src/ProjectileControl.lua')().new(config.Projectiles,engine,tools)
     app.ProjectileControl=projectiles; engine.ProjectileController=projectiles
+    toys=remote('src/ToyTools.lua')().new(config.Fun); app.ToyTools=toys
     library.unloaded:Connect(function()
         if silent then pcall(silent.Destroy,silent) end
+        if toys then pcall(toys.Destroy,toys) end
         if projectiles then pcall(projectiles.Destroy,projectiles) end
         if stock then pcall(stock.Destroy,stock) end
         if scanner then pcall(scanner.Destroy,scanner) end
@@ -19902,6 +19970,7 @@ local ok,message=xpcall(function()
         if group=='ObjectESP' and objects then objects:Step() end
         if group=='DealerStock' and stock then stock:Step() end
         if group=='Projectiles' and projectiles then projectiles:Step(0) end
+        if group=='Fun' and toys then toys:Step() end
     end
     local function flag(group,key) return group..'_'..key end
     local function remember(group,key,option,kind,choices)
@@ -20100,6 +20169,7 @@ local ok,message=xpcall(function()
     toggle(projectileSection,'Rocket control','Projectiles','Rockets')
     slider(projectileSection,'Projectile speed','Projectiles','Speed',20,350,10,' studs/s')
     projectileSection:AddButton({text='Release projectile (X)',callback=function() projectiles.pending={}; projectiles:Release('Released') end})
+    toggle(projectileSection,'Jerk Tool','Fun','Jerk')
     projectileSection:AddText({text='Launch C4 or a rocket normally, then steer with the camera. X releases control.'})
     local stamina=tabs.Character:AddSection('Criminality / Stamina',1)
     toggle(stamina,'Infinite stamina','Character','InfiniteStamina')
@@ -20351,6 +20421,7 @@ local ok,message=xpcall(function()
     objects:Start()
     stock:Start()
     projectiles:Start()
+    toys:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
 if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end
