@@ -157,6 +157,7 @@ function app:DebugContext()
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     data.SilentStatus=silent and silent.Status or 'not started'
+    data.SilentShotStatus=silent and silent.ShotStatus or 'not started'
     data.StaminaStatus=tools and tools.StaminaStatus or 'not started'
     data.InfiniteStamina=config.Character.InfiniteStamina
     data.StaminaTables=tools and #tools.staminaTables or 0
@@ -447,7 +448,8 @@ local ok,message=xpcall(function()
     slider(silentControls,'3D trace width','Silent','TraceWidth',0.02,0.3,0.01,' studs')
     silentControls:AddText({text='Cyan: redirected; orange: unchanged; grey: original; gold: target guide.'})
     silentControls:AddButton({text='Show silent status',callback=function()
-        library:SendNotification(silent.Status..' | Auto fire: '..(silent.AutoFireStatus or 'Disabled'),5)
+        library:SendNotification(silent.Status..' | Auto fire: '..(silent.AutoFireStatus or 'Disabled')
+            ..' | Shot: '..(silent.ShotStatus or 'Waiting for shot'),8)
     end})
     silentControls:AddText({text='Auto input: equipped Tool, otherwise mouse1click. Mouse input requires executor support.'})
     local combat=tabs.Combat:AddSection('Combat',1)

@@ -31,8 +31,11 @@ local reports={}
 function hit:FireServer(...) table.insert(reports,table.pack(...)) end
 hookfunction=nil; checkcaller=nil; hookmetamethod=nil; getnamecallmethod=nil
 app.Library:SetOpen(false); s.Enabled=true
+-- Real gun cooldowns can disable Tool while Visualize still describes a shot;
+-- the event backend also supports weapons without the old Values ammo schema.
+gun.Children.Values=nil; gun.Enabled=false
 silent:Step(1)
-assert(silent.prepared and silent.Backend=='Criminality Visualize','event backend needs no hook APIs')
+assert(silent.prepared and silent.Backend=='Criminality Visualize','event backend needs neither hooks nor ammo schema nor an enabled Tool')
 local function flush()
     local pending=task.pending; task.pending={}
     for _,thread in ipairs(pending) do assert(coroutine.resume(thread)) end
@@ -48,6 +51,7 @@ for index,args in ipairs(reports) do
         and args[4]==index and args[5]==targetChar.Children.Head,'reference protocol')
     assert((args[7]-(targetChar.Children.Head.Position).Unit).Magnitude<1e-7,'direction toward target')
 end
+gun.Enabled=true
 shot('first'); flush(); assert(#reports==2,'duplicate event ignored')
 shot('foreign',Instance.new('Tool')); flush(); assert(#reports==2,'foreign shooter ignored')
 s.HitChance=0; shot('miss'); flush(); assert(#reports==2,'zero hit chance'); s.HitChance=100
@@ -59,6 +63,21 @@ shot('dead'); hum.Health=0; flush(); assert(#reports==2,'late death'); hum.Healt
 shot('swapped'); gun.Parent=nil; flush(); assert(#reports==2,'unequip cancels'); gun.Parent=character
 shot('reset'); silent:Reset(); flush(); assert(#reports==2,'reset cancels pending work')
 silent:Step(2); shot('respawn'); players.LocalPlayer.Character=nil; flush(); assert(#reports==2,'respawn cancels'); players.LocalPlayer.Character=character
+silent:Step(2.1); shot('cooldown'); gun.Enabled=false; silent:Step(2.2); flush()
+assert(#reports==4,'heartbeat during fire cooldown must not cancel a real shot'); gun.Enabled=true
+visualize.Event:Fire(nil,'no-pellets',nil,gun,nil,vec(0,0,0),nil); flush()
+assert(#reports==5 and reports[5][4]==1,'absent pellet list is a single pellet as in reference')
+visualize.Event:Fire(nil,'empty-pellets',nil,gun,nil,vec(0,0,0),{}); flush()
+assert(#reports==6,'empty pellet list is a single pellet')
+visualize.Event:Fire(nil,'opaque-pellets',nil,gun,nil,vec(0,0,0),{'opaque','payload'}); flush()
+assert(#reports==8,'protocol requires pellet count, not original vector contents')
+assert(silent.ShotStatus:find('Sent 2',1,true) and app:DebugContext().SilentShotStatus==silent.ShotStatus,'shot diagnostics show reports separately from server damage')
+local fireServer=hit.FireServer
+function hit:FireServer() error('report rejected') end
+shot('remote-error'); flush()
+assert(silent.ShotStatus:find('report rejected',1,true),'deferred send errors are visible in shot status')
+hit.FireServer=fireServer
+while #reports>2 do table.remove(reports) end
 silent:Step(3); shot('unload'); app:Unload(); flush(); assert(#reports==2,'unload cancels pending work')
 shot('after'); flush(); assert(#reports==2,'listener disconnected')
 print('PASS Criminality Visualize: no hooks, pellet protocol, deduplication, chance, filters and delayed cancellation')

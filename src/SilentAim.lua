@@ -19,7 +19,7 @@ local function inside(object,parent)
 end
 function Silent.new(config,engine,library,melee)
     local self=setmetatable({config=config,engine=engine,library=library,melee=melee,logger=engine.Logger,
-        alive=true,Counters={},Status='Disabled',lastSummary=0,
+        alive=true,Counters={},Status='Disabled',ShotStatus='Waiting for Visualize event',lastSummary=0,
         traceQueue={},shots={},tracePool={},projectiles={},casters={}},Silent)
     self.circle=engine.Drawing.new('Circle')
     self.circle.Filled=false; self.circle.Thickness=1; self.circle.ZIndex=31; self.circle.Visible=false
@@ -53,10 +53,10 @@ function Silent:Reset()
     end
     if self.targetDot then self.targetDot.Visible=false; self.targetLabel.Visible=false end
 end
-function Silent:Equip(tool)
+function Silent:Equip(tool,skipBallistics)
     if self.tool==tool then return end
     self.tool=tool; self:Reset(); self.ballistics=nil
-    local config=tool and tool:FindFirstChild('Config')
+    local config=not skipBallistics and tool and tool:FindFirstChild('Config')
     if config then
         local ok,value=pcall(require,config)
         if ok and type(value)=='table' and type(value.BulletSettings)=='table' then
@@ -95,29 +95,42 @@ function Silent:InstallVisualize()
     self.visualizeObject,self.hitRemote=visualize,hit
     self.visualizeConnection=visualize.Event:Connect(function(...)
         local ok,problem=pcall(self.Visualize,self,...)
-        if not ok then self:Log('error','visualize',tostring(problem),nil,1) end
+        if not ok then
+            self.ShotStatus='Error handling Visualize: '..tostring(problem)
+            self:Log('error','visualize',tostring(problem),nil,1)
+        end
     end)
     return true
 end
 function Silent:Visualize(_,identifier,_,tool,_,origin,directions)
     local s=self.config
+    local function skip(reason)
+        self.ShotStatus='Skipped: '..reason
+        self:Count('visualize.skip.'..reason)
+        self:Log('trace','visualize.skip',reason,nil,0.5)
+    end
+    self:Count('visualize.seen')
     if not self.alive or not s.Enabled or s.Universal or not self.engine.focused
         or Input:GetFocusedTextBox() or self.library:IsInteracting() or self.library:IsPointerOverUI()
-        or (s.PauseMenu and self.library.open) then return end
+        or (s.PauseMenu and self.library.open) then return skip('paused by input / menu / mode') end
     local character=Players.LocalPlayer.Character
     if not character or character:FindFirstChildOfClass('Tool')~=tool
-        or character:FindFirstChildOfClass('ForceField') then return end
-    if type(identifier)~='string' and type(identifier)~='number' then return end
-    if type(directions)~='table' or #directions<1 or #directions>128 then return end
-    for _,direction in ipairs(directions) do if not finite(direction) then return end end
+        then return skip('foreign or unequipped tool') end
+    if character:FindFirstChildOfClass('ForceField') then return skip('local ForceField') end
+    if type(identifier)~='string' and type(identifier)~='number' then return skip('invalid shot identifier') end
+    -- The reference treats absent/empty pellet data as one pellet. Only its
+    -- count is part of the hit protocol; original directions are optional.
+    local pelletCount=type(directions)=='table' and math.max(1,#directions) or 1
+    if pelletCount>128 then return skip('too many pellets') end
+    local original=type(directions)=='table' and directions[1]
     -- Refresh filters at the actual shot, including walls and friend changes.
     local p=self.gunContext
-    if not p or not p.Target or p.Tool~=tool then return end
-    local target=self.engine:Candidate(p.Target.Player,workspace.CurrentCamera,p.Root,s,self.ray)
-    if not target then return end
+    if not p or not p.Target or p.Tool~=tool then return skip('no prepared target / gun context') end
+    local target,reason=self.engine:Candidate(p.Target.Player,workspace.CurrentCamera,p.Root,s,self.ray)
+    if not target then return skip('target: '..tostring(reason)) end
     if s.SkipDowned then
         local hum=p.Target.Character:FindFirstChildOfClass('Humanoid')
-        if self.melee:DownedState(p.Target.Player,p.Target.Character,hum) and hum.Health<=15 then return end
+        if self.melee:DownedState(p.Target.Player,p.Target.Character,hum) and hum.Health<=15 then return skip('target downed') end
     end
     if not finite(origin) then
         local handle=tool:FindFirstChild('WeaponHandle',true) or tool:FindFirstChild('Handle',true)
@@ -126,39 +139,48 @@ function Silent:Visualize(_,identifier,_,tool,_,origin,directions)
     end
     local aim=target.Position
     if not finite(origin) or not finite(aim) or (origin-p.Root.Position).Magnitude>s.OriginRadius
-        or (aim-origin).Magnitude<0.001 then return end
+        or (aim-origin).Magnitude<0.001 then return skip('invalid / distant origin') end
     self.visualized=self.visualized or {}
     local now=os.clock()
     local count=0
     for id,time in pairs(self.visualized) do
         if now-time>5 then self.visualized[id]=nil else count+=1 end
     end
-    if self.visualized[identifier] or count>=128 then return end
+    if self.visualized[identifier] or count>=128 then return skip('duplicate / event limit') end
     self.visualized[identifier]=now
-    if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return end
+    if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return skip('hit chance') end
     local generation=self.visualizeGeneration or 0
     local remote,part=self.hitRemote,target.Part
+    self.ShotStatus='Queued: '..pelletCount..' pellet(s)'
     task.delay(0,function()
-        if generation~=(self.visualizeGeneration or 0) or not self.alive or not s.Enabled or s.Universal
-            or not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
-            or self.library:IsPointerOverUI() or (s.PauseMenu and self.library.open)
-            or Players.LocalPlayer.Character~=character or tool.Parent~=character or not tool.Enabled then return end
-        local fresh=self.engine:Candidate(target.Player,workspace.CurrentCamera,p.Root,s,self.ray)
-        if not fresh or fresh.Part~=part then return end
-        local hum=character:FindFirstChildOfClass('Humanoid')
-        if not hum or hum.Health<=0 or character:FindFirstChildOfClass('ForceField') then return end
-        local targetHum=target.Player.Character:FindFirstChildOfClass('Humanoid')
-        if s.SkipDowned and self.melee:DownedState(target.Player,target.Player.Character,targetHum)
-            and targetHum.Health<=15 then return end
-        local delta=part.Position-origin
-        if delta.Magnitude<0.001 then return end
-        for index=1,#directions do
-            remote:FireServer(utf8.char(129480),tool,identifier,index,part,part.Position,delta.Unit)
-            self:Count('visualize.reported')
-        end
-        if s.ShowTracers then
-            self:QueueTrace({Origin=origin,Original=directions[1],Sent=delta,End=part.Position,
-                Time=os.clock(),Redirected=true,Hit=false,Reason='Hit report sent; server damage unconfirmed'})
+        local ok,problem=pcall(function()
+            if generation~=(self.visualizeGeneration or 0) or not self.alive or not s.Enabled or s.Universal
+                or not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
+                or self.library:IsPointerOverUI() or (s.PauseMenu and self.library.open)
+                or Players.LocalPlayer.Character~=character or tool.Parent~=character
+                or character:FindFirstChildOfClass('Tool')~=tool then return skip('cancelled / unequipped / paused') end
+            local fresh,reason=self.engine:Candidate(target.Player,workspace.CurrentCamera,p.Root,s,self.ray)
+            if not fresh or fresh.Part~=part then return skip('target changed: '..tostring(reason)) end
+            local hum=character:FindFirstChildOfClass('Humanoid')
+            if not hum or hum.Health<=0 or character:FindFirstChildOfClass('ForceField') then return skip('local rig / ForceField') end
+            local targetHum=target.Player.Character:FindFirstChildOfClass('Humanoid')
+            if s.SkipDowned and self.melee:DownedState(target.Player,target.Player.Character,targetHum)
+                and targetHum.Health<=15 then return skip('target downed') end
+            local delta=part.Position-origin
+            if delta.Magnitude<0.001 then return skip('zero direction') end
+            for index=1,pelletCount do
+                remote:FireServer(utf8.char(129480),tool,identifier,index,part,part.Position,delta.Unit)
+                self:Count('visualize.reported')
+            end
+            self.ShotStatus='Sent '..pelletCount..' hit report(s); server damage unconfirmed'
+            if s.ShowTracers then
+                self:QueueTrace({Origin=origin,Original=finite(original) and original or delta,Sent=delta,End=part.Position,
+                    Time=os.clock(),Redirected=true,Hit=false,Reason='Hit report sent; server damage unconfirmed'})
+            end
+        end)
+        if not ok then
+            self.ShotStatus='Error sending hit report: '..tostring(problem)
+            self:Log('error','visualize.report',tostring(problem),nil,1)
         end
     end)
 end
@@ -305,7 +327,12 @@ function Silent:Step(now)
     local tool=not s.Universal and character:FindFirstChildOfClass('Tool') or nil
     local values=tool and tool:FindFirstChild('Values')
     local ammo=values and (values:FindFirstChild('SERVER_Ammo') or values:FindFirstChild('Ammo') or values:FindFirstChild('StoredAmmo'))
-    if not s.Universal and (not tool or not tool.Enabled or self.melee:IsMeleeTool(tool) or not ammo) then
+    local eventBackend=not s.Universal and self:VisualizeObjects()~=nil
+    -- Tool.Enabled commonly drops during the real weapon's fire cooldown.
+    -- Visualize already identifies a real shot; ammo schema/cooldown must not
+    -- clear its target context or cancel its delayed report.
+    if not s.Universal and (not tool or self.melee:IsMeleeTool(tool)
+        or (not eventBackend and (not tool.Enabled or not ammo))) then
         self:Equip(nil); self:Reset()
         self:SetStatus(tool and not self.melee:IsMeleeTool(tool) and not ammo
             and 'Unsupported gun: ammo values not found' or 'Equip an enabled gun')
@@ -317,7 +344,7 @@ function Silent:Step(now)
         self.raycastHook=self.melee.hook; self.raycastHook.SilentOwner=self
         self.Backend='Universal Raycast'
     else
-        self:Equip(tool)
+        self:Equip(tool,eventBackend)
     end
     local visualize=not s.Universal and self:InstallVisualize()
     if visualize then self.Backend='Criminality Visualize' end
