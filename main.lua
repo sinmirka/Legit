@@ -106,7 +106,7 @@ local config={
         MaxDistance=1500,RefreshRate=30,FillOpacity=0.35,OutlineOpacity=1,
         VisibleColors=false,TeamColors=false,TargetColor=true,HealthColors=false,
     },
-    ObjectESP={Scrap=false,GreenCrates=false,RedCrates=false,Airdrops=false,Dealers=false,
+    ObjectESP={Scrap=false,ScrapRarity='All',GreenCrates=false,RedCrates=false,Airdrops=false,Dealers=false,
         MaxDistance=1500,MaxObjects=128,Highlight=true,Labels=true,Distance=true,ThroughWalls=true,FillTransparency=0.65},
     Colors={
         Fill=Color3.fromRGB(145,105,245),Outline=Color3.fromRGB(225,215,255),
@@ -425,6 +425,8 @@ local ok,message=xpcall(function()
     stamina:AddText({text='Requires getgc. Cached S-field method; current game behavior needs live verification.'})
     local loot=tabs.ESP:AddSection('Values / Criminality objects',2)
     toggle(loot,'Scrap ESP','ObjectESP','Scrap')
+    select(loot,'Minimum scrap rarity','ObjectESP','ScrapRarity',{'All','Common','Uncommon','Rare','Epic','Legendary','Mythic'})
+    loot:AddText({text='Shows the selected rarity and higher. Unknown rarity appears only with All.'})
     toggle(loot,'Green crate ESP','ObjectESP','GreenCrates')
     toggle(loot,'Red crate ESP','ObjectESP','RedCrates')
     toggle(loot,'Airdrop ESP (yellow)','ObjectESP','Airdrops')

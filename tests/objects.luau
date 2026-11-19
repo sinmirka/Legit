@@ -53,6 +53,11 @@ assert(count==5 and not esp.records[unknown] and not esp.records[fake],'canonica
 assert(esp.records[green].Highlight.FillColor.G>0.8 and esp.records[red].Highlight.FillColor.R==1,'crate colours')
 assert(esp.records[drop].Highlight.FillColor.R==1 and esp.records[drop].Highlight.FillColor.G>0.8,'yellow airdrop')
 assert(esp.records[scrap].Label.Visible and esp.records[dealer].Label.Text:find('Dealer',1,true),'scrap and dealer labels')
+s.ScrapRarity='Rare'; esp:Step(); assert(not esp.records[scrap] and esp.records[dealer],'unknown rarity hidden without affecting dealers')
+scrap.Attributes={Rarity='Epic'}; esp:Step(); assert(esp.records[scrap] and esp.records[scrap].Label.Text:find('Epic',1,true),'minimum rarity includes higher ranks')
+s.ScrapRarity='Legendary'; esp:Step(); assert(not esp.records[scrap],'lower rarity filtered')
+scrap.Attributes.Rarity='Mythic'; esp:Step(); assert(esp.records[scrap],'live rarity changes reflected')
+s.ScrapRarity='All'; scrap.Attributes=nil; esp:Step(); assert(esp.records[scrap],'All retains unknown rarity')
 for _=1,100 do esp:Step() end
 assert(scans==0,'no whole-world workspace rescans')
 local extra=model('Crate',workspace,8,Color3.fromRGB(30,150,30))

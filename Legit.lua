@@ -19116,6 +19116,28 @@ Objects.__index=Objects
 local colors={Scrap=Color3.fromRGB(190,195,205),GreenCrates=Color3.fromRGB(60,235,100),
     RedCrates=Color3.fromRGB(255,65,65),Airdrops=Color3.fromRGB(255,220,50),Dealers=Color3.fromRGB(170,120,255)}
 local labels={Scrap='Scrap',GreenCrates='Green crate',RedCrates='Red crate',Airdrops='Airdrop',Dealers='Dealer'}
+Objects.Rarities={'Common','Uncommon','Rare','Epic','Legendary','Mythic'}
+function Objects.Rarity(object,part,valueObject)
+    local function parse(value)
+        for rank,name in ipairs(Objects.Rarities) do
+            if (type(value)=='string' and value:lower()==name:lower()) or tonumber(value)==rank then return name,rank end
+        end
+    end
+    if valueObject and valueObject.Parent then
+        local name,rank=parse(valueObject.Value)
+        if name then return name,rank end
+    end
+    for _,container in ipairs(part and {object,part} or {object}) do
+        for _,key in ipairs({'Rarity','Tier','Quality'}) do
+            local value=container:GetAttribute(key)
+            local child=container:FindFirstChild(key)
+            if value==nil and child and (child:IsA('StringValue') or child:IsA('IntValue') or child:IsA('NumberValue')) then value=child.Value end
+            local name,rank=parse(value)
+            if name then return name,rank end
+        end
+    end
+    return 'Unknown',0
+end
 local function normal(value) return tostring(value or ''):lower():gsub('[%s_%-]','') end
 local function drawable(object) return object:IsA('Model') or object:IsA('BasePart') end
 function Objects.Part(object)
@@ -19177,6 +19199,8 @@ function Objects:Add(object)
     local sample=object:IsA('BasePart') and object or nil
     if self.candidates[root] then
         if not self.candidates[root].Part then self.candidates[root].Part=sample end
+        if kind=='Scrap' and (object.Name=='Rarity' or object.Name=='Tier' or object.Name=='Quality')
+            and (object:IsA('StringValue') or object:IsA('IntValue') or object:IsA('NumberValue')) then self.candidates[root].RarityValue=object end
         return
     end
     if self.candidateCount<2048 then
@@ -19210,7 +19234,13 @@ function Objects:Step()
             self.Counts[data.Kind]=(self.Counts[data.Kind] or 0)+1
             if not data.Part or not data.Part.Parent then data.Part=Objects.Part(object) end
             local distance=root and data.Part and (root.Position-data.Part.Position).Magnitude
-            if camera and distance and distance<=self.config.MaxDistance and self.config[data.Kind] then
+            local rarityAllowed=true
+            if data.Kind=='Scrap' then
+                local name,rank=Objects.Rarity(object,data.Part,data.RarityValue); data.Rarity=name
+                local minimum=table.find(Objects.Rarities,self.config.ScrapRarity) or 0
+                rarityAllowed=minimum==0 or rank>=minimum
+            end
+            if camera and distance and distance<=self.config.MaxDistance and self.config[data.Kind] and rarityAllowed then
                 table.insert(eligible,{Object=object,Data=data,Distance=distance})
             end
         end
@@ -19239,7 +19269,8 @@ function Objects:Step()
         local visible=self.config.ThroughWalls or self.engine:Visible(object,data.Part.Position,camera)
         record.Label.Visible=self.config.Labels and onScreen and screen.Z>0 and visible
         record.Label.Position=Vector2.new(screen.X,screen.Y); record.Label.Color=color
-        record.Label.Text=labels[data.Kind]..(self.config.Distance and string.format(' [%d studs]',item.Distance) or '')
+        record.Label.Text=labels[data.Kind]..(data.Kind=='Scrap' and (' ['..data.Rarity..']') or '')
+            ..(self.config.Distance and string.format(' [%d studs]',item.Distance) or '')
         end
     end
     for object in pairs(self.records) do if not shown[object] then self:Remove(object) end end
@@ -19523,7 +19554,7 @@ local config={
         MaxDistance=1500,RefreshRate=30,FillOpacity=0.35,OutlineOpacity=1,
         VisibleColors=false,TeamColors=false,TargetColor=true,HealthColors=false,
     },
-    ObjectESP={Scrap=false,GreenCrates=false,RedCrates=false,Airdrops=false,Dealers=false,
+    ObjectESP={Scrap=false,ScrapRarity='All',GreenCrates=false,RedCrates=false,Airdrops=false,Dealers=false,
         MaxDistance=1500,MaxObjects=128,Highlight=true,Labels=true,Distance=true,ThroughWalls=true,FillTransparency=0.65},
     Colors={
         Fill=Color3.fromRGB(145,105,245),Outline=Color3.fromRGB(225,215,255),
@@ -19842,6 +19873,8 @@ local ok,message=xpcall(function()
     stamina:AddText({text='Requires getgc. Cached S-field method; current game behavior needs live verification.'})
     local loot=tabs.ESP:AddSection('Values / Criminality objects',2)
     toggle(loot,'Scrap ESP','ObjectESP','Scrap')
+    select(loot,'Minimum scrap rarity','ObjectESP','ScrapRarity',{'All','Common','Uncommon','Rare','Epic','Legendary','Mythic'})
+    loot:AddText({text='Shows the selected rarity and higher. Unknown rarity appears only with All.'})
     toggle(loot,'Green crate ESP','ObjectESP','GreenCrates')
     toggle(loot,'Red crate ESP','ObjectESP','RedCrates')
     toggle(loot,'Airdrop ESP (yellow)','ObjectESP','Airdrops')
