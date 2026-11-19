@@ -19120,9 +19120,9 @@ local function normal(value) return tostring(value or ''):lower():gsub('[%s_%-]'
 local function drawable(object) return object:IsA('Model') or object:IsA('BasePart') end
 function Objects.Part(object)
     if object:IsA('BasePart') then return object end
-    return object.PrimaryPart or object:FindFirstChildWhichIsA('BasePart',true)
+    return object.PrimaryPart or object:FindFirstChildWhichIsA('BasePart')
 end
-function Objects.CrateKind(object)
+function Objects.CrateKind(object,sample)
     local name=normal(object.Name)..normal(object:GetAttribute('CrateType'))..normal(object:GetAttribute('Type'))
     if name:find('airdrop',1,true) or name:find('supplydrop',1,true) or name:find('yellow',1,true) then return 'Airdrops' end
     if name:find('red',1,true) then return 'RedCrates' end
@@ -19137,11 +19137,7 @@ function Objects.CrateKind(object)
     local part=Objects.Part(object)
     local kind=part and byColor(part)
     if kind then return kind end
-    if object:IsA('Model') then
-        for _,child in ipairs(object:GetDescendants()) do
-            if child:IsA('BasePart') then kind=byColor(child); if kind then return kind end end
-        end
-    end
+    if sample and sample:IsA('BasePart') then return byColor(sample) end
 end
 function Objects.Classify(object)
     local root,kind
@@ -19158,7 +19154,7 @@ function Objects.Classify(object)
                 or parentName=='dealers' or parentName=='bredmakurz' then root,kind=cursor,'Dealers'
             elseif name:find('crate',1,true) or name:find('airdrop',1,true) or name:find('supplydrop',1,true)
                 or parentName=='spawnedcrates' or parentName=='crates' or parentName=='airdrops' then
-                local crateKind=Objects.CrateKind(cursor)
+                local crateKind=Objects.CrateKind(cursor,object)
                 if crateKind then root,kind=cursor,crateKind end
             end
         end
@@ -19169,7 +19165,7 @@ end
 function Objects.new(config,engine)
     local folder=Instance.new('Folder'); folder.Name='LegitObjectESP'; folder.Parent=engine.folder
     return setmetatable({config=config,engine=engine,folder=folder,alive=true,candidates={},records={},queue={},
-        Status='Disabled',Counts={},connections={}},Objects)
+        Status='Disabled',Counts={},connections={},candidateCount=0,scanner=engine.Scanner},Objects)
 end
 function Objects:Enabled()
     for kind in pairs(colors) do if self.config[kind] then return true end end
@@ -19177,9 +19173,16 @@ function Objects:Enabled()
 end
 function Objects:Add(object)
     local root,kind=Objects.Classify(object)
-    if not root or self.candidates[root] then return end
-    local count=0; for _ in pairs(self.candidates) do count+=1 end
-    if count<2048 then self.candidates[root]={Kind=kind,Part=Objects.Part(root)} end
+    if not root then return end
+    local sample=object:IsA('BasePart') and object or nil
+    if self.candidates[root] then
+        if not self.candidates[root].Part then self.candidates[root].Part=sample end
+        return
+    end
+    if self.candidateCount<2048 then
+        self.candidates[root]={Kind=kind,Part=Objects.Part(root) or sample}
+        self.candidateCount+=1
+    end
 end
 function Objects:Remove(object)
     local record=self.records[object]
@@ -19187,7 +19190,7 @@ function Objects:Remove(object)
 end
 function Objects:Clear()
     for object in pairs(self.records) do self:Remove(object) end
-    self.candidates={}; self.queue={}; self.scanned=false; self.Counts={}
+    self.candidates={}; self.candidateCount=0; self.scanned=false; self.Counts={}
 end
 function Objects:Rescan() self:Clear(); self:Step() end
 function Objects:Step()
@@ -19195,15 +19198,14 @@ function Objects:Step()
     if not self:Enabled() then self:Clear(); self.Status='Disabled'; return end
     if not self.scanned then
         self.scanned=true
-        for _,object in ipairs(workspace:GetDescendants()) do self:Add(object) end
+        self.scanner:Request()
     end
-    for _=1,math.min(64,#self.queue) do self:Add(table.remove(self.queue)) end
     local camera=workspace.CurrentCamera
     local character=Players.LocalPlayer.Character
     local root=character and character:FindFirstChild('HumanoidRootPart')
     local eligible={}; self.Counts={}
     for object,data in pairs(self.candidates) do
-        if not object.Parent or not object:IsDescendantOf(workspace) then self:Remove(object); self.candidates[object]=nil
+        if not object.Parent or not object:IsDescendantOf(workspace) then self:Remove(object); self.candidates[object]=nil; self.candidateCount-=1
         else
             self.Counts[data.Kind]=(self.Counts[data.Kind] or 0)+1
             if not data.Part or not data.Part.Parent then data.Part=Objects.Part(object) end
@@ -19215,15 +19217,18 @@ function Objects:Step()
     end
     table.sort(eligible,function(a,b) return a.Distance<b.Distance end)
     local shown={}
+    local created=0
     for index,item in ipairs(eligible) do
         if index>self.config.MaxObjects then break end
         local object,data=item.Object,item.Data
         local record=self.records[object]
-        if not record then
+        if not record and created<8 then
+            created+=1
             local highlight=Instance.new('Highlight'); highlight.Parent=self.folder; highlight.Adornee=object
             local label=self.engine.Drawing.new('Text'); label.Center=true; label.Outline=true; label.Size=13; label.ZIndex=20
             record={Highlight=highlight,Label=label}; self.records[object]=record
         end
+        if record then
         shown[object]=true
         local color=colors[data.Kind]
         record.Highlight.FillColor=color; record.Highlight.OutlineColor=color
@@ -19235,14 +19240,15 @@ function Objects:Step()
         record.Label.Visible=self.config.Labels and onScreen and screen.Z>0 and visible
         record.Label.Position=Vector2.new(screen.X,screen.Y); record.Label.Color=color
         record.Label.Text=labels[data.Kind]..(self.config.Distance and string.format(' [%d studs]',item.Distance) or '')
+        end
     end
     for object in pairs(self.records) do if not shown[object] then self:Remove(object) end end
     self.Status=string.format('%d visible / %d eligible',math.min(#eligible,self.config.MaxObjects),#eligible)
 end
 function Objects:Start()
-    if workspace.DescendantAdded then table.insert(self.connections,workspace.DescendantAdded:Connect(function(object)
-        if self.alive and self:Enabled() and #self.queue<4096 then table.insert(self.queue,object) end
-    end)) end
+    table.insert(self.connections,self.scanner:Subscribe(function(object)
+        if self.alive and self:Enabled() then self:Add(object) end
+    end))
     local nextStep=0
     table.insert(self.connections,RunService.Heartbeat:Connect(function()
         if os.clock()<nextStep then return end; nextStep=os.clock()+0.1
@@ -19256,6 +19262,80 @@ function Objects:Destroy()
     self:Clear(); self.folder:Destroy()
 end
 return Objects
+]====]
+files["src/WorldScanner.lua"]=[====[-- Incremental shared traversal: no whole-world GetDescendants or synchronous UI scan.
+local RunService=game:GetService('RunService')
+local Scanner={}
+Scanner.__index=Scanner
+function Scanner.new()
+    return setmetatable({alive=true,listeners={},stack={},pending={},head=1,visited={},Budget=48,Seconds=0.002},Scanner)
+end
+function Scanner:Subscribe(callback)
+    local entry={Connected=true,Callback=callback}
+    function entry:Disconnect() self.Connected=false end
+    table.insert(self.listeners,entry)
+    return entry
+end
+function Scanner:Request() self.requested=true end
+function Scanner:Emit(object)
+    if not object or not object.Parent or self.visited[object] then return end
+    self.visited[object]=true
+    for _,entry in ipairs(self.listeners) do
+        if entry.Connected then
+            local ok,problem=pcall(entry.Callback,object)
+            if not ok then self.LastError=tostring(problem) end
+        end
+    end
+end
+function Scanner:Step()
+    if not self.alive then return end
+    if self.requested then
+        self.requested=false; self.visited={}
+        self.stack={{Children={workspace},Index=1}}
+    end
+    local started=os.clock()
+    self.LastProcessed=0
+    for _=1,self.Budget do
+        if os.clock()-started>=self.Seconds then break end
+        local object
+        -- Streamed objects are delivered before continuing the initial traversal.
+        if self.head<=#self.pending then
+            object=self.pending[self.head]; self.head+=1
+        else
+            self.pending={}; self.head=1
+            local frame=self.stack[#self.stack]
+            if not frame then break end
+            object=frame.Children[frame.Index]; frame.Index+=1
+            if not object then table.remove(self.stack) end
+        end
+        if object and (object==workspace or object.Parent) and not self.visited[object] then
+            local ignored=object~=workspace and object.Name:sub(1,5)=='Legit'
+            if not ignored then
+                if object~=workspace then self:Emit(object) else self.visited[object]=true end
+                local children=object:GetChildren()
+                if #children>0 then table.insert(self.stack,{Children=children,Index=1}) end
+            end
+        end
+        self.LastProcessed+=1
+    end
+    self.Scanning=self.requested or #self.stack>0 or self.head<=#self.pending
+end
+function Scanner:Start()
+    if workspace.DescendantAdded then self.added=workspace.DescendantAdded:Connect(function(object)
+        if #self.pending-self.head<4096 then table.insert(self.pending,object) else self:Request() end
+    end) end
+    self.heartbeat=RunService.Heartbeat:Connect(function()
+        local ok,problem=pcall(self.Step,self)
+        if not ok then self.LastError=tostring(problem) end
+    end)
+end
+function Scanner:Destroy()
+    self.alive=false
+    if self.added then self.added:Disconnect() end
+    if self.heartbeat then self.heartbeat:Disconnect() end
+    self.stack={}; self.pending={}; self.visited={}; self.listeners={}
+end
+return Scanner
 ]====]
 files["src/Diagnostics.lua"]=[====[-- Bounded local diagnostics. No network transport; file/clipboard export is explicit.
 local Diagnostics={}
@@ -19473,7 +19553,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,silent,tools,logger,objects
+local engine,melee,silent,tools,logger,objects,scanner
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -19514,6 +19594,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if scanner then clean('world scanner',function() scanner:Destroy() end) end
     if objects then clean('object ESP',function() objects:Destroy() end) end
     if tools then clean('universal tools',function() tools:Destroy() end) end
     if silent then clean('silent aim',function() silent:Destroy() end) end
@@ -19537,10 +19618,12 @@ local ok,message=xpcall(function()
     app.SilentAim=silent
     tools=remote('src/UniversalTools.lua')().new(config,engine,library)
     app.Tools=tools
+    scanner=remote('src/WorldScanner.lua')().new(); engine.Scanner=scanner; app.WorldScanner=scanner
     objects=remote('src/ObjectESP.lua')().new(config.ObjectESP,engine)
     app.ObjectESP=objects
     library.unloaded:Connect(function()
         if silent then pcall(silent.Destroy,silent) end
+        if scanner then pcall(scanner.Destroy,scanner) end
         if objects then pcall(objects.Destroy,objects) end
         if tools then pcall(tools.Destroy,tools) end
         if melee then pcall(melee.Destroy,melee) end
@@ -19988,6 +20071,7 @@ local ok,message=xpcall(function()
     melee:Start()
     silent:Start()
     tools:Start()
+    scanner:Start()
     objects:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)

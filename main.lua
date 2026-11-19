@@ -136,7 +136,7 @@ local config={
         Prediction=false,LeadTime=0.1,PauseMenu=false,SkipScriptable=false,
     },
 }
-local engine,melee,silent,tools,logger,objects
+local engine,melee,silent,tools,logger,objects,scanner
 local app={Library=library,Config=config,Alive=true,Renderer=renderMode,DrawingRenderer=renderer}
 function app:DebugContext()
     local character=game:GetService('Players').LocalPlayer.Character
@@ -177,6 +177,7 @@ function app:Unload()
         local success,problem=pcall(callback)
         if not success then warn('[Legit cleanup / '..label..'] '..tostring(problem)) end
     end
+    if scanner then clean('world scanner',function() scanner:Destroy() end) end
     if objects then clean('object ESP',function() objects:Destroy() end) end
     if tools then clean('universal tools',function() tools:Destroy() end) end
     if silent then clean('silent aim',function() silent:Destroy() end) end
@@ -200,10 +201,12 @@ local ok,message=xpcall(function()
     app.SilentAim=silent
     tools=remote('src/UniversalTools.lua')().new(config,engine,library)
     app.Tools=tools
+    scanner=remote('src/WorldScanner.lua')().new(); engine.Scanner=scanner; app.WorldScanner=scanner
     objects=remote('src/ObjectESP.lua')().new(config.ObjectESP,engine)
     app.ObjectESP=objects
     library.unloaded:Connect(function()
         if silent then pcall(silent.Destroy,silent) end
+        if scanner then pcall(scanner.Destroy,scanner) end
         if objects then pcall(objects.Destroy,objects) end
         if tools then pcall(tools.Destroy,tools) end
         if melee then pcall(melee.Destroy,melee) end
@@ -651,6 +654,7 @@ local ok,message=xpcall(function()
     melee:Start()
     silent:Start()
     tools:Start()
+    scanner:Start()
     objects:Start()
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
