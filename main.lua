@@ -93,6 +93,7 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
+    Combat={WallBang=false},
     Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false,
         Spinbot=false,SpinSpeed=360,SpinPitch=70,JumpCooldown=false,JumpDelay=0.5},
     Interaction={Instant=false},
@@ -240,6 +241,7 @@ local ok,message=xpcall(function()
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
             refreshTools(group)
+            if group=='Combat' then engine:ResetTarget(); silent:Reset(); melee:Reset() end
             if group=='Silent' then silent:Reset() end
             if group=='Silent' and key=='Enabled' and value then
                 local unavailable=silent:CapabilityProblem()
@@ -448,7 +450,9 @@ local ok,message=xpcall(function()
         library:SendNotification(silent.Status..' | Auto fire: '..(silent.AutoFireStatus or 'Disabled'),5)
     end})
     silentControls:AddText({text='Auto input: equipped Tool, otherwise mouse1click. Mouse input requires executor support.'})
-    tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
+    local combat=tabs.Combat:AddSection('Combat',1)
+    toggle(combat,'Wall Bang','Combat','WallBang')
+    combat:AddText({text='Allows aim targets behind walls. Server damage depends on game hit validation.'})
     local stamina=tabs.Character:AddSection('Criminality / Stamina',1)
     toggle(stamina,'Infinite stamina','Character','InfiniteStamina')
     stamina:AddButton({text='Rescan stamina',callback=function() tools:RescanStamina(); tools:Step(); library:SendNotification(tools.StaminaStatus,6) end})

@@ -17091,6 +17091,9 @@ function Engine:Visible(character, position, camera, ray)
     local hit = workspace:Raycast(camera.CFrame.Position, delta, ray or self.ray)
     return not hit or hit.Instance:IsDescendantOf(character)
 end
+function Engine:WallCheckEnabled(settings)
+    return settings.WallCheck and not (self.config.Combat and self.config.Combat.WallBang)
+end
 function Engine:Candidate(other, camera, localRoot, settings, ray)
     local a = settings or self.config.Aim
     if other==self.player then return nil,'self' end
@@ -17119,7 +17122,7 @@ function Engine:Candidate(other, camera, localRoot, settings, ray)
         pixels=(screen-camera.ViewportSize/2).Magnitude
         if pixels>a.Radius then return nil,'FOV' end
     end
-    if a.WallCheck and not self:Visible(character, part.Position, camera, ray) then return nil,'wall' end
+    if self:WallCheckEnabled(a) and not self:Visible(character, part.Position, camera, ray) then return nil,'wall' end
     local score = full360 and distance or pixels
     if a.Priority == 'Distance' then score = distance end
     if a.Priority == 'Lowest health' then score = humanoid.Health end
@@ -17802,7 +17805,7 @@ function MeleeAura:Candidate(player,root)
     if not part or not part:IsA('BasePart') then return nil,'body part' end
     local delta=part.Position-root.Position
     if delta.Magnitude>s.Range or delta.Magnitude<0.001 then return nil,'range' end
-    if s.WallCheck then
+    if self.engine:WallCheckEnabled(s) then
         local hit=workspace:Raycast(root.Position,delta,self.ray)
         if hit and not hit.Instance:IsDescendantOf(character) then return nil,'wall' end
     end
@@ -19488,6 +19491,7 @@ library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
     Debug={Enabled=false,Console=false,CaptureRays=false},
+    Combat={WallBang=false},
     Character={VelocitySpeed=false,Speed=16,InfiniteStamina=false,Noclip=false,
         Spinbot=false,SpinSpeed=360,SpinPitch=70,JumpCooldown=false,JumpDelay=0.5},
     Interaction={Instant=false},
@@ -19635,6 +19639,7 @@ local ok,message=xpcall(function()
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
             refreshTools(group)
+            if group=='Combat' then engine:ResetTarget(); silent:Reset(); melee:Reset() end
             if group=='Silent' then silent:Reset() end
             if group=='Silent' and key=='Enabled' and value then
                 local unavailable=silent:CapabilityProblem()
@@ -19843,7 +19848,9 @@ local ok,message=xpcall(function()
         library:SendNotification(silent.Status..' | Auto fire: '..(silent.AutoFireStatus or 'Disabled'),5)
     end})
     silentControls:AddText({text='Auto input: equipped Tool, otherwise mouse1click. Mouse input requires executor support.'})
-    tabs.Combat:AddSection('Combat',1):AddText({text='Recoil, wallbang, auto-block and event combat are not implemented.'})
+    local combat=tabs.Combat:AddSection('Combat',1)
+    toggle(combat,'Wall Bang','Combat','WallBang')
+    combat:AddText({text='Allows aim targets behind walls. Server damage depends on game hit validation.'})
     local stamina=tabs.Character:AddSection('Criminality / Stamina',1)
     toggle(stamina,'Infinite stamina','Character','InfiniteStamina')
     stamina:AddButton({text='Rescan stamina',callback=function() tools:RescanStamina(); tools:Step(); library:SendNotification(tools.StaminaStatus,6) end})

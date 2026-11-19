@@ -102,6 +102,9 @@ function Engine:Visible(character, position, camera, ray)
     local hit = workspace:Raycast(camera.CFrame.Position, delta, ray or self.ray)
     return not hit or hit.Instance:IsDescendantOf(character)
 end
+function Engine:WallCheckEnabled(settings)
+    return settings.WallCheck and not (self.config.Combat and self.config.Combat.WallBang)
+end
 function Engine:Candidate(other, camera, localRoot, settings, ray)
     local a = settings or self.config.Aim
     if other==self.player then return nil,'self' end
@@ -130,7 +133,7 @@ function Engine:Candidate(other, camera, localRoot, settings, ray)
         pixels=(screen-camera.ViewportSize/2).Magnitude
         if pixels>a.Radius then return nil,'FOV' end
     end
-    if a.WallCheck and not self:Visible(character, part.Position, camera, ray) then return nil,'wall' end
+    if self:WallCheckEnabled(a) and not self:Visible(character, part.Position, camera, ray) then return nil,'wall' end
     local score = full360 and distance or pixels
     if a.Priority == 'Distance' then score = distance end
     if a.Priority == 'Lowest health' then score = humanoid.Health end

@@ -125,7 +125,7 @@ function MeleeAura:Candidate(player,root)
     if not part or not part:IsA('BasePart') then return nil,'body part' end
     local delta=part.Position-root.Position
     if delta.Magnitude>s.Range or delta.Magnitude<0.001 then return nil,'range' end
-    if s.WallCheck then
+    if self.engine:WallCheckEnabled(s) then
         local hit=workspace:Raycast(root.Position,delta,self.ray)
         if hit and not hit.Instance:IsDescendantOf(character) then return nil,'wall' end
     end
