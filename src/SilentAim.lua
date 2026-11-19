@@ -17,6 +17,20 @@ local function inside(object,parent)
     end
     return false
 end
+-- Shared per-coroutine guard spans the original call too: FastCast entry points
+-- can delegate to one another, and Effects can synchronously emit shot signals.
+local function guardedCall(state,original,callback,...)
+    local thread=coroutine.running() or state
+    if state.Busy[thread] then return original(...) end
+    state.Busy[thread]=true
+    local args=table.pack(...)
+    local ok,problem=pcall(callback,args)
+    if not ok and state.Owner then state.Owner:Log('error','adapter',tostring(problem),nil,1) end
+    local results=table.pack(pcall(original,table.unpack(args,1,args.n)))
+    state.Busy[thread]=nil
+    if not results[1] then error(results[2],0) end
+    return table.unpack(results,2,results.n)
+end
 function Silent.new(config,engine,library,melee)
     local self=setmetatable({config=config,engine=engine,library=library,melee=melee,logger=engine.Logger,
         alive=true,Counters={},Status='Disabled',ShotStatus='Waiting for Visualize event',lastSummary=0,
@@ -24,7 +38,6 @@ function Silent.new(config,engine,library,melee)
     self.circle=engine.Drawing.new('Circle')
     self.circle.Filled=false; self.circle.Thickness=1; self.circle.ZIndex=31; self.circle.Visible=false
     self.ray=RaycastParams.new(); self.ray.FilterType=Enum.RaycastFilterType.Exclude; self.ray.IgnoreWater=true
-    self.penetrationRay=RaycastParams.new(); self.penetrationRay.FilterType=Enum.RaycastFilterType.Include; self.penetrationRay.IgnoreWater=true
     return self
 end
 function Silent:Count(reason)
@@ -78,8 +91,7 @@ function Silent:CapabilityProblem()
     if self.config.Universal then return self.melee:RaycastCapabilityProblem(true) end
     if self:VisualizeObjects() then return end
     if type(hookfunction)=='function' and type(checkcaller)=='function' then return end
-    if not self.melee:RaycastCapabilityProblem(true) then return end
-    return 'Unavailable: missing hookfunction/checkcaller; no Visualize event or Raycast hook adapter'
+    return 'Unavailable: missing hookfunction/checkcaller and no Visualize event'
 end
 -- Criminality's Visualize event is also available in executors without hooks.
 function Silent:VisualizeObjects()
@@ -109,7 +121,7 @@ function Silent:Visualize(_,identifier,_,tool,_,origin,directions)
     local function skip(reason)
         self.ShotStatus='Skipped: '..reason
         self:Count('visualize.skip.'..reason)
-        self:Log('trace','visualize.skip',reason,nil,0.5)
+        self:Log('info','visualize.skip',reason,{Shot=identifier})
     end
     self:Count('visualize.seen')
     if not self.alive or not s.Enabled or s.Universal or self.engine.ProjectileControl or not self.engine.focused
@@ -125,6 +137,7 @@ function Silent:Visualize(_,identifier,_,tool,_,origin,directions)
     local pelletCount=type(directions)=='table' and math.max(1,#directions) or 1
     if pelletCount>128 then return skip('too many pellets') end
     local original=type(directions)=='table' and directions[1]
+    self:Log('info','shot.visualize','Visualize received',{Shot=identifier,Weapon=tool.Name,Pellets=pelletCount})
     -- Refresh filters at the actual shot, including walls and friend changes.
     local p=self.gunContext
     if not p or not p.Target or p.Tool~=tool then return skip('no prepared target / gun context') end
@@ -175,6 +188,7 @@ function Silent:Visualize(_,identifier,_,tool,_,origin,directions)
                 self:Count('visualize.reported')
             end
             self.ShotStatus='Sent '..pelletCount..' hit report(s); server damage unconfirmed'
+            self:Log('info','shot.report',self.ShotStatus,{Shot=identifier,Target=target.Player.Name,Pellets=pelletCount})
             if s.ShowTracers then
                 self:QueueTrace({Origin=origin,Original=finite(original) and original or delta,Sent=delta,End=part.Position,
                     Time=os.clock(),Redirected=true,Hit=false,Reason='Hit report sent; server damage unconfirmed'})
@@ -198,19 +212,16 @@ function Silent:InstallEffectsHook()
     local env=getgenv()
     env.LegitSilentEffectsHooks=env.LegitSilentEffectsHooks or {}
     local state=env.LegitSilentEffectsHooks[module]
+    if state and state.Version~=2 then state.Owner=nil; state=nil end
     if not state then
-        state={}; env.LegitSilentEffectsHooks[module]=state
+        state={Version=2,Busy=setmetatable({},{__mode='k'})}; env.LegitSilentEffectsHooks[module]=state
         local original
         local wrap=type(newcclosure)=='function' and newcclosure or function(fn) return fn end
         local installed,problem=pcall(function()
             original=hookfunction(api,wrap(function(...)
                 local owner=state.Owner
-                if owner and owner.alive and owner.config.Enabled and not checkcaller() then
-                    local args=table.pack(...)
-                    local success,err=pcall(owner.Shoot,owner,nil,args)
-                    if not success then owner:Log('error','shoot',tostring(err),nil,1) end
-                end
-                return original(...)
+                if not owner or not owner.alive or not owner.config.Enabled or checkcaller() then return original(...) end
+                return guardedCall(state,original,function(args) owner:Shoot(nil,args) end,...)
             end))
             assert(type(original)=='function','missing original Effects function')
         end)
@@ -229,6 +240,7 @@ function Silent:Shoot(caller,args)
         self:Count('shoot.skip.local gun scope'); return
     end
     local list=args[7]
+    self:Log('info','shot.effects','Local gun shot',{Shot=args[3],Weapon=p.Tool.Name,Pellets=type(list)=='table' and #list or 0})
     if type(list)~='table' or #list<1 or #list>128 or table.isfrozen(list) then return end
     local originals,changed,reasons,replacements={},{},{},{}
     for i,direction in ipairs(list) do
@@ -268,7 +280,8 @@ function Silent:InstallProjectileHook()
     local env=getgenv()
     env.LegitSilentFastCastHooks=env.LegitSilentFastCastHooks or {}
     local state=env.LegitSilentFastCastHooks[module]
-    if not state then state={Methods={}}; env.LegitSilentFastCastHooks[module]=state end
+    if state and state.Version~=2 then state.Owner=nil; state=nil end
+    if not state then state={Version=2,Methods={},Busy=setmetatable({},{__mode='k'})}; env.LegitSilentFastCastHooks[module]=state end
     -- hookfunction also catches references cached by the game's gun controller.
     for _,method in ipairs(methods) do
         if not state.Methods[method] then
@@ -278,17 +291,10 @@ function Silent:InstallProjectileHook()
                 original=hookfunction(api[method],wrap(function(...)
                     local owner=state.Owner
                     if not owner or not owner.alive or not owner.config.Enabled or checkcaller() then return original(...) end
-                    local args=table.pack(...)
-                    local caller=type(getcallingscript)=='function' and getcallingscript() or nil
-                    local changed,direction,velocity=pcall(owner.Projectile,owner,caller,method,args)
-                    if changed then
+                    return guardedCall(state,original,function(args)
+                        local direction,velocity=owner:Projectile(nil,method,args)
                         if direction then args[4],args[5]=direction,velocity end
-                    else
-                        owner:Count('projectile.error')
-                        owner:Log('error','projectile',tostring(direction),nil,1)
-                    end
-                    -- Game errors and the complete return tuple retain their normal behavior.
-                    return original(table.unpack(args,1,args.n))
+                    end,...)
                 end))
                 assert(type(original)=='function','hookfunction did not return the original')
             end)
@@ -351,12 +357,8 @@ function Silent:Step(now)
     end
     local visualize=not s.Universal and self:InstallVisualize()
     if visualize then self.Backend='Criminality Visualize' end
-    local raycastActive=s.Universal
-    if not s.Universal and not self.melee:RaycastCapabilityProblem(true) then
-        if self.melee:InstallHook(true) then
-            self.raycastHook=self.melee.hook; self.raycastHook.SilentOwner=self; raycastActive=true
-        end
-    end
+    -- Default gun mode never intercepts every per-segment workspace ray.
+    -- Steering happens at launch; FastCast keeps its own collision traversal.
     -- Visualize and direction hooks are complementary in the reference.
     -- An event object existing does not mean it steers the real projectile.
     if not s.Universal and (not self.effectsHook or not self.projectileHook)
@@ -375,7 +377,6 @@ function Silent:Step(now)
         if visualize then table.insert(adapters,'Criminality Visualize') end
         if self.effectsHook then table.insert(adapters,'Gun directions')
         elseif self.projectileHook then table.insert(adapters,'FastCast') end
-        if raycastActive then table.insert(adapters,'Raycast') end
         if #adapters==0 then self:Reset(); self:SetStatus(self.GunAdapterStatus or 'No shot adapter'); return end
         self.Backend=table.concat(adapters,' + ')
     end
@@ -406,7 +407,6 @@ function Silent:Step(now)
     self.gunContext={Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool,
         Universal=s.Universal,CameraOrigin=camera.CFrame.Position}
     self.prepared=best and self.gunContext or nil
-    self.penetrationRay.FilterDescendantsInstances=best and {best.Character} or {}
     self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
     self.circle.Visible=s.ShowFOV and not s.Full360
@@ -567,11 +567,11 @@ function Silent:Projectile(caller,method,args)
     self:TrackProjectile(args,method,{Origin=args[3],Original=launch.Originals[index].Unit*direction.Magnitude,
         Sent=direction,Time=now,Redirected=launch.Changed[index],Reason=launch.Reasons[index]})
 end
--- Redirect actual weapon queries alongside Visualize; universal mode retains its original range.
--- Wall Bang uses an actual engine query restricted to the prepared target character.
+-- Explicit Universal mode only: preserve the exact ray length and original collision params.
+-- Never extend FastCast segments or replace collision filters inside its traversal.
 function Silent:Redirect(_,origin,direction)
     local s,p=self.config,self.gunContext
-    if not self.alive or not s.Enabled or not p or p.Universal~=s.Universal
+    if not self.alive or not s.Enabled or not s.Universal or not p or not p.Universal
         or self.engine.ProjectileControl or not self.engine.focused or (s.PauseMenu and self.library.open) then return end
     if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return end
     if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 then return end
@@ -589,10 +589,9 @@ function Silent:Redirect(_,origin,direction)
         end
         local delta=target.Position-origin
         reason='range / downed / hit chance'
-        if not downed and delta.Magnitude>0.001 and (not s.Universal or delta.Magnitude<=direction.Magnitude)
+        if not downed and delta.Magnitude>0.001 and delta.Magnitude<=direction.Magnitude
             and s.HitChance>0 and (s.HitChance>=100 or math.random(1,100)<=s.HitChance) then
-            local length=s.Universal and direction.Magnitude or math.max(direction.Magnitude,delta.Magnitude+0.1)
-            sent=delta.Unit*length; reason='redirected'
+            sent=delta.Unit*direction.Magnitude; reason='redirected'
             self.DirectionStatus='Weapon Raycast redirected'
             self:Count('ray.redirected')
         end
@@ -603,8 +602,7 @@ function Silent:Redirect(_,origin,direction)
         self.nextUniversalTrace=now+0.05
         trace={Origin=origin,Original=direction,Sent=sent or direction,Time=now,Redirected=sent~=nil,Reason=reason}
     end
-    local params=sent and self.engine.config.Combat and self.engine.config.Combat.WallBang and self.penetrationRay or nil
-    return sent,trace,params
+    return sent,trace
 end
 function Silent:ObserveHit() end -- The shared dispatcher records the actual result below.
 function Silent:RecordTrace(trace,result)

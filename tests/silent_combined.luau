@@ -67,51 +67,43 @@ local events2=Instance.new('Folder'); storage.Children.Events2=events2
 local visualize=Instance.new('BindableEvent'); visualize.Event=visualize.Activated; events2.Children.Visualize=visualize
 local hit=Instance.new('RemoteEvent'); events.Children.ZFKLF__H=hit
 local reports=0; function hit:FireServer() reports+=1 end
-local intercepted,rayArgs,rayCalls,rayInstalled=nil,nil,0,0
-local wall=Instance.new('Part')
+local rayInstalled,intercepted,rayArgs=0,nil,nil
 hookmetamethod=function(_,_,callback)
     rayInstalled+=1; intercepted=callback
-    return function(receiver,...)
-        rayCalls+=1; rayArgs=table.pack(...)
-        local params=rayArgs[3]
-        if params and params.FilterType==Enum.RaycastFilterType.Include then
-            assert(params.FilterDescendantsInstances[1]==targetChar,'penetration query restricted to selected target')
-            return {Instance=targetChar.Children.Head,Position=targetChar.Children.Head.Position},nil,'tail'
-        end
-        return {Instance=wall,Position=vec(0,0,1)},nil,'tail'
-    end
+    return function(_,...) rayArgs=table.pack(...); return 'actual-ray-result',nil,'tail' end
 end
 getnamecallmethod=function() return 'Raycast' end
-getcallingscript=nil -- Silent ray steering does not require caller introspection.
-app.Library:SetOpen(false); s.Enabled=true
-silent:Step(1)
-assert(installed==4 and rayInstalled==1,'Visualize must not suppress Effects/FastCast/Raycast hooks')
-assert(silent.Backend:find('Visualize',1,true) and silent.Backend:find('Gun directions',1,true) and silent.Backend:find('Raycast',1,true),'combined adapter status')
-local list={direction}
-hooks[effects]('Shoot',nil,'combined-shot',true,gun,origin,list,{})
-assert(list[1].X>0 and (list[1]-direction).Magnitude>1,'real shared direction list changes while Visualize exists')
-assert(effectsArgs[7]==list,'server and local Effects retain shared table')
-local _,_,tail=hooks[api.Fire](caster,'combined-shot',origin,list[1],300,bullet,character,true,acceleration)
-assert(tail=='tail' and lastArgs[4]==list[1],'original projectile receives the steered direction')
-visualize.Event:Fire(nil,'combined-shot',nil,gun,nil,origin,list)
+-- Real FastCast methods can delegate; nested entry points must not adapt twice.
+api.FireWithBlacklist=function(...) return hooks[api.Fire](...) end
+app.Library:SetOpen(false); s.Enabled=true; silent:Step(1)
+assert(installed==4 and rayInstalled==0,'default mode only installs launch hooks, never a per-segment global ray hook')
+assert(silent.Backend:find('Visualize',1,true) and silent.Backend:find('Gun directions',1,true),'combined event and launch adapters')
+local list={direction}; hooks[effects]('Shoot',nil,'shot',true,gun,origin,list,{})
+assert(list[1].X>0 and effectsArgs[7]==list,'real shared local/server direction list changes')
+local projectileCalls=0; local projectile=silent.Projectile
+silent.Projectile=function(self,...) projectileCalls+=1; return projectile(self,...) end
+local a,b,c=hooks[api.FireWithBlacklist](caster,'shot',origin,list[1],300,exclusions,bullet,true,acceleration)
+assert(a=='original' and b==nil and c=='tail' and projectileCalls==1,'nested FastCast calls adapt once and preserve returns')
+assert(lastArgs[4]==list[1] and lastArgs[4].Magnitude==list[1].Magnitude,'launch direction handed to original unchanged after preparation')
+visualize.Event:Fire(nil,'shot',nil,gun,nil,origin,list)
 local pending=task.pending; task.pending={}; for _,thread in ipairs(pending) do assert(coroutine.resume(thread)) end
-assert(reports==1,'reference hit report also remains active')
-local params={FilterType=Enum.RaycastFilterType.Exclude,FilterDescendantsInstances={character}}
-local hitResult,empty,returnTail=intercepted(workspace,origin,vec(0,0,1),params,nil,'extra')
-assert(rayArgs[2].X>0 and rayArgs[2].Magnitude>30,'short projectile query redirected toward selected part')
-assert(hitResult.Instance==wall and empty==nil and returnTail=='tail' and rayArgs[3]==params,'ordinary mode keeps actual wall collision and return tuple')
+assert(reports==1,'hit report remains active')
 app.Library.options.Combat_WallBang:SetState(true); silent:Step(2)
-local before=rayCalls
-hitResult=intercepted(workspace,origin,vec(0,0,1),params,nil,'extra')
-assert(rayCalls==before+1 and hitResult.Instance==targetChar.Children.Head,'wallbang changes actual query filter and returns original engine result')
-assert(rayArgs[3]~=params and params.FilterType==Enum.RaycastFilterType.Exclude and params.FilterDescendantsInstances[1]==character,'game params never mutated')
-assert(rayArgs.n==5 and rayArgs[4]==nil and rayArgs[5]=='extra','nil and extra arguments preserved')
-intercepted(workspace,origin,vec(0,0,1)); assert(rayArgs.n==3 and rayArgs[3].FilterType==Enum.RaycastFilterType.Include,'omitted params inserted correctly')
-intercepted(workspace,vec(200,0,0),direction,params); assert(rayArgs[2]==direction and rayArgs[3]==params,'distant nonweapon queries untouched')
-s.HitChance=0; intercepted(workspace,origin,direction,params); assert(rayArgs[2]==direction and rayArgs[3]==params,'zero chance preserves direction and filter'); s.HitChance=100
-app.Library.options.Combat_WallBang:SetState(false); silent:Step(3)
-intercepted(workspace,origin,direction,params); assert(rayArgs[3]==params,'turning off restores normal collision parameters')
-assert(installed==4 and rayInstalled==1,'no repeated hook chains')
-s.Enabled=false; intercepted(workspace,origin,direction,params); assert(rayArgs[2]==direction,'disabled stops immediately')
-app:Unload(); assert(not silent.raycastHook.SilentOwner,'unload releases shared hook ownership')
-print('PASS combined silent: Visualize + actual gun directions + Raycast, real wallbang query filter, optional caller API and cleanup')
+assert(rayInstalled==0 and not silent:Redirect(nil,origin,vec(0,0,1)),'Wall Bang must not stretch FastCast segments or install global query filter')
+-- Adapter errors must release the coroutine guard for the next real shot.
+silent.Projectile=function() error('adapter failed') end
+assert(hooks[api.FireWithBlacklist](caster,'shot',origin,list[1],300,exclusions,bullet,true,acceleration)=='original','adapter failure passes through')
+silent.Projectile=function(self,...) projectileCalls+=1; return projectile(self,...) end
+local before=projectileCalls
+hooks[api.FireWithBlacklist](caster,'shot',origin,list[1],300,exclusions,bullet,true,acceleration)
+assert(projectileCalls==before+1,'guard clears after adapter failure')
+-- Explicit Universal mode retains the original ray length and collision params.
+app.Library.options.Silent_Universal:SetState(true); silent:Step(3)
+assert(rayInstalled==1,'only explicit Universal mode attaches ray steering')
+local params={FilterType=Enum.RaycastFilterType.Exclude,FilterDescendantsInstances={character}}
+intercepted(workspace,origin,vec(0,0,1),params)
+assert(rayArgs[2].Magnitude==1 and rayArgs[3]==params,'short segments never extended or given a different collision filter')
+intercepted(workspace,origin,vec(0,0,100),params)
+assert(math.abs(rayArgs[2].Magnitude-100)<1e-8 and rayArgs[3]==params,'long rays retain length and params even with Wall Bang')
+app:Unload(); assert(not silent.raycastHook.SilentOwner,'cleanup')
+print('PASS stable launch hooks: Visualize + directions, no default ray interception, nested FastCast guard, original ray invariants')
