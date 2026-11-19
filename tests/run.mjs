@@ -34,7 +34,7 @@ const bundle = 'SOURCES = {}\n' + runtime.map(path => `SOURCES["${path}"] = ${li
 const directory = resolve(root, '.test-work');
 mkdirSync(directory, { recursive: true });
 for (const name of ['integration', 'obsidian_ui', 'bundle', 'melee', 'melee_remotes', 'universal', 'spin',
-  'jump_limit', 'diagnostics', 'silent', 'silent_visualize', 'silent_universal', 'silent_autofire', 'silent_cycle', 'objects', 'dealer_stock', 'projectiles', 'toy_tools', 'cleanup', 'wallbang']) {
+  'jump_limit', 'diagnostics', 'silent', 'silent_visualize', 'silent_combined', 'silent_universal', 'silent_autofire', 'silent_cycle', 'objects', 'dealer_stock', 'projectiles', 'toy_tools', 'cleanup', 'wallbang']) {
   const script = resolve(directory, name + '.luau');
   writeFileSync(script, bundle + read(`tests/${name}.luau`), 'utf8');
   run(options['--luau'], [script]);

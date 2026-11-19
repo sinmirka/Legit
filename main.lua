@@ -164,6 +164,9 @@ function app:DebugContext()
     data.SilentAutoFire=config.Silent.AutoFire
     data.SilentAutoFireStatus=silent and silent.AutoFireStatus or 'Disabled'
     data.SilentHookAttached=silent and silent.projectileHook~=nil or false
+    data.SilentRaycastAttached=silent and silent.raycastHook~=nil or false
+    data.SilentEffectsAttached=silent and silent.effectsHook~=nil or false
+    data.SilentDirectionStatus=silent and silent.DirectionStatus or 'No redirected direction observed'
     data.SilentEnabled=config.Silent.Enabled
     data.Silent360=config.Silent.Full360
     data.SilentPart=config.Silent.Part; data.SilentFOV=config.Silent.Radius
@@ -594,7 +597,8 @@ local ok,message=xpcall(function()
     local diagnostics=tabs['UI Settings']:AddSection('Diagnostics',1)
     diagnostics:AddButton({text='Show combat status',callback=function()
         library:SendNotification((engine.Status or 'Aim off')..'\nMelee: '..melee.Status..'\nSilent: '..silent.Status
-            ..'\nShot: '..silent.ShotStatus..'\nObjects: '..objects.Status..'\nStock: '..stock.Status
+            ..'\nShot: '..silent.ShotStatus..'\nDirection: '..(silent.DirectionStatus or 'No redirected direction observed')
+            ..'\nObjects: '..objects.Status..'\nStock: '..stock.Status
             ..'\nProjectiles: '..projectiles.Status..'\nToy: '..toys.Status,12)
     end})
     local function clearDiagnostics()

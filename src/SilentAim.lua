@@ -24,6 +24,7 @@ function Silent.new(config,engine,library,melee)
     self.circle=engine.Drawing.new('Circle')
     self.circle.Filled=false; self.circle.Thickness=1; self.circle.ZIndex=31; self.circle.Visible=false
     self.ray=RaycastParams.new(); self.ray.FilterType=Enum.RaycastFilterType.Exclude; self.ray.IgnoreWater=true
+    self.penetrationRay=RaycastParams.new(); self.penetrationRay.FilterType=Enum.RaycastFilterType.Include; self.penetrationRay.IgnoreWater=true
     return self
 end
 function Silent:Count(reason)
@@ -37,6 +38,7 @@ function Silent:SetStatus(value)
     if self.logger then self.logger:State('Silent','status',value) end
 end
 function Silent:Reset()
+    if self.raycastHook and self.raycastHook.SilentOwner==self then self.raycastHook.SilentOwner=nil end
     self.visualizeGeneration=(self.visualizeGeneration or 0)+1
     self.cycleVisited=nil
     self:ReleaseAutoFire()
@@ -73,11 +75,11 @@ function Silent:FastCastModule()
     return module and module:IsA('ModuleScript') and module or nil
 end
 function Silent:CapabilityProblem()
-    if self.config.Universal then return self.melee:RaycastCapabilityProblem() end
+    if self.config.Universal then return self.melee:RaycastCapabilityProblem(true) end
     if self:VisualizeObjects() then return end
-    for _,name in ipairs({'hookfunction','checkcaller'}) do
-        if type(getfenv()[name])~='function' then return 'Unavailable: missing '..name end
-    end
+    if type(hookfunction)=='function' and type(checkcaller)=='function' then return end
+    if not self.melee:RaycastCapabilityProblem(true) then return end
+    return 'Unavailable: missing hookfunction/checkcaller; no Visualize event or Raycast hook adapter'
 end
 -- Criminality's Visualize event is also available in executors without hooks.
 function Silent:VisualizeObjects()
@@ -219,7 +221,7 @@ function Silent:InstallEffectsHook()
     return true
 end
 function Silent:Shoot(caller,args)
-    if self.config.Universal or self:VisualizeObjects() then return end
+    if self.config.Universal then return end
     local p=self.gunContext
     if args[1]~='Shoot' then return end
     self:Count('shoot.seen')
@@ -250,7 +252,8 @@ function Silent:Shoot(caller,args)
         self.launches[args[3]]={Time=now,Tool=p.Tool,Originals=originals,Sent=replacements,Changed=changed,Reasons=reasons}
     end
     self:Count('shoot.prepared')
-    self.Backend='Gun directions'
+    self.DirectionStatus='Gun directions updated'
+    self.ShotStatus='Gun directions updated before local/server launch'
 end
 function Silent:InstallProjectileHook()
     if self.projectileHook then return true end
@@ -307,7 +310,7 @@ function Silent:Step(now)
     if self.lastUniversal~=s.Universal then
         self:Equip(nil); self:Reset(); self.Backend=nil; self.lastUniversal=s.Universal
     end
-    if self.raycastHook and (not s.Enabled or not s.Universal) and self.raycastHook.SilentOwner==self then
+    if self.raycastHook and not s.Enabled and self.raycastHook.SilentOwner==self then
         self.raycastHook.SilentOwner=nil
     end
     if not self.alive or not s.Enabled then self:Reset(); self:SetStatus('Disabled'); return end
@@ -340,7 +343,7 @@ function Silent:Step(now)
     end
     if s.Universal then
         self:Equip(nil)
-        if not self.melee:InstallHook() then self:Reset(); self:SetStatus(self.melee.Status); return end
+        if not self.melee:InstallHook(true) then self:Reset(); self:SetStatus(self.melee.Status); return end
         self.raycastHook=self.melee.hook; self.raycastHook.SilentOwner=self
         self.Backend='Universal Raycast'
     else
@@ -348,16 +351,33 @@ function Silent:Step(now)
     end
     local visualize=not s.Universal and self:InstallVisualize()
     if visualize then self.Backend='Criminality Visualize' end
-    if not s.Universal and not visualize and (not self.projectileHook or not self.effectsAttempted) then
-        if self.installing then self:SetStatus('Loading FastCast adapter'); return end
-        if now<(self.nextInstall or 0) then return end
-        self.nextInstall=now+2; self.installing=true
-        local effectsOK,effectsReason=self:InstallEffectsHook()
-        self.effectsAttempted=true
-        if not effectsOK then self:Log('info','shoot.fallback',effectsReason,nil,5) end
-        local installed,reason=self:InstallProjectileHook()
-        self.installing=false
-        if not installed then self:Reset(); self:SetStatus(reason); return end
+    local raycastActive=s.Universal
+    if not s.Universal and not self.melee:RaycastCapabilityProblem(true) then
+        if self.melee:InstallHook(true) then
+            self.raycastHook=self.melee.hook; self.raycastHook.SilentOwner=self; raycastActive=true
+        end
+    end
+    -- Visualize and direction hooks are complementary in the reference.
+    -- An event object existing does not mean it steers the real projectile.
+    if not s.Universal and (not self.effectsHook or not self.projectileHook)
+        and not self.installing and now>=(self.nextInstall or 0) then
+        self.nextInstall=now+2
+        if type(hookfunction)=='function' and type(checkcaller)=='function' then
+            self.installing=true
+            local effectsOK,effectsReason=self:InstallEffectsHook()
+            local castOK,castReason=self:InstallProjectileHook()
+            self.installing=false
+            self.GunAdapterStatus=effectsOK and 'Effects attached' or (castOK and 'FastCast attached' or tostring(effectsReason or castReason))
+        else self.GunAdapterStatus='Gun hooks unavailable' end
+    end
+    if not s.Universal then
+        local adapters={}
+        if visualize then table.insert(adapters,'Criminality Visualize') end
+        if self.effectsHook then table.insert(adapters,'Gun directions')
+        elseif self.projectileHook then table.insert(adapters,'FastCast') end
+        if raycastActive then table.insert(adapters,'Raycast') end
+        if #adapters==0 then self:Reset(); self:SetStatus(self.GunAdapterStatus or 'No shot adapter'); return end
+        self.Backend=table.concat(adapters,' + ')
     end
     self.ray.FilterDescendantsInstances={character,camera}
     local best,rejected,candidates=nil,{},{}
@@ -386,6 +406,7 @@ function Silent:Step(now)
     self.gunContext={Target=best,Character=character,Humanoid=humanoid,Root=root,Tool=tool,
         Universal=s.Universal,CameraOrigin=camera.CFrame.Position}
     self.prepared=best and self.gunContext or nil
+    self.penetrationRay.FilterDescendantsInstances=best and {best.Character} or {}
     self.circle.Position=camera.ViewportSize/2; self.circle.Radius=s.Radius
     self.circle.Color=s.FOVColor; self.circle.Transparency=s.FOVOpacity*self.engine:Opacity('Silent','FOVColor')
     self.circle.Visible=s.ShowFOV and not s.Full360
@@ -472,7 +493,7 @@ function Silent:AimLaunch(caller,method,args,localShot)
     local speed=type(velocity)=='number' and velocity or (finite(velocity) and velocity.Magnitude)
     if not speed or speed~=speed or speed<=0 or speed>=math.huge then return reject('invalid velocity') end
     if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 or self.tool~=p.Tool
-        or p.Tool.Parent~=p.Character or not p.Tool.Enabled then return reject('tool/rig') end
+        or p.Tool.Parent~=p.Character then return reject('tool/rig') end
     if (origin-p.Root.Position).Magnitude>s.OriginRadius then return reject('distant origin') end
     if not localShot and not inside(caller,p.Tool) then return reject('caller mismatch') end
     local function skip(reason) return reject(reason) end
@@ -508,7 +529,7 @@ function Silent:AimLaunch(caller,method,args,localShot)
     return sent,type(velocity)=='number' and velocity or unit*speed
 end
 function Silent:Projectile(caller,method,args)
-    if self.config.Universal or self:VisualizeObjects() then return end
+    if self.config.Universal then return end
     -- Observation only. The gun's shared direction list was already changed upstream.
     self:Count('projectile.seen')
     local launch=self.launches and self.launches[args[2]]
@@ -524,6 +545,7 @@ function Silent:Projectile(caller,method,args)
         end
         if not localShot then self:Count('projectile.skip.foreign shooter'); return end
         local direction,velocity,reason=self:AimLaunch(caller,method,args,true)
+        if direction then self.DirectionStatus='FastCast launch redirected' end
         self.Backend='FastCast launch fallback'
         self:Count('projectile.fallback')
         if self.config.ShowTracers and finite(args[3]) and finite(args[4]) then
@@ -545,14 +567,15 @@ function Silent:Projectile(caller,method,args)
     self:TrackProjectile(args,method,{Origin=args[3],Original=launch.Originals[index].Unit*direction.Magnitude,
         Sent=direction,Time=now,Redirected=launch.Changed[index],Reason=launch.Reasons[index]})
 end
--- Universal mode only changes the direction of a real workspace:Raycast.
--- No tool names, ammo values, game modules or synthetic hit results are required.
+-- Redirect actual weapon queries alongside Visualize; universal mode retains its original range.
+-- Wall Bang uses an actual engine query restricted to the prepared target character.
 function Silent:Redirect(_,origin,direction)
     local s,p=self.config,self.gunContext
-    if not self.alive or not s.Enabled or not s.Universal or not p or not p.Universal
-        or not self.engine.focused or (s.PauseMenu and self.library.open) then return end
+    if not self.alive or not s.Enabled or not p or p.Universal~=s.Universal
+        or self.engine.ProjectileControl or not self.engine.focused or (s.PauseMenu and self.library.open) then return end
     if not finite(origin) or not finite(direction) or direction.Magnitude<0.001 then return end
     if Players.LocalPlayer.Character~=p.Character or p.Humanoid.Health<=0 then return end
+    if not s.Universal and (self.tool~=p.Tool or not p.Tool or p.Tool.Parent~=p.Character) then return end
     if (origin-p.Root.Position).Magnitude>s.OriginRadius and (origin-p.CameraOrigin).Magnitude>s.OriginRadius then return end
     local target=p.Target
     local sent,reason=nil,'no target'
@@ -566,9 +589,11 @@ function Silent:Redirect(_,origin,direction)
         end
         local delta=target.Position-origin
         reason='range / downed / hit chance'
-        if not downed and delta.Magnitude>0.001 and delta.Magnitude<=direction.Magnitude
+        if not downed and delta.Magnitude>0.001 and (not s.Universal or delta.Magnitude<=direction.Magnitude)
             and s.HitChance>0 and (s.HitChance>=100 or math.random(1,100)<=s.HitChance) then
-            sent=delta.Unit*direction.Magnitude; reason='redirected'
+            local length=s.Universal and direction.Magnitude or math.max(direction.Magnitude,delta.Magnitude+0.1)
+            sent=delta.Unit*length; reason='redirected'
+            self.DirectionStatus='Weapon Raycast redirected'
             self:Count('ray.redirected')
         end
     end
@@ -578,7 +603,8 @@ function Silent:Redirect(_,origin,direction)
         self.nextUniversalTrace=now+0.05
         trace={Origin=origin,Original=direction,Sent=sent or direction,Time=now,Redirected=sent~=nil,Reason=reason}
     end
-    return sent,trace
+    local params=sent and self.engine.config.Combat and self.engine.config.Combat.WallBang and self.penetrationRay or nil
+    return sent,trace,params
 end
 function Silent:ObserveHit() end -- The shared dispatcher records the actual result below.
 function Silent:RecordTrace(trace,result)
