@@ -18069,6 +18069,7 @@ function Silent:SetStatus(value)
     if self.logger then self.logger:State('Silent','status',value) end
 end
 function Silent:Reset()
+    self.visualizeGeneration=(self.visualizeGeneration or 0)+1
     self.cycleVisited=nil
     self:ReleaseAutoFire()
     self.AutoFireStatus=self.config.AutoFire and 'Waiting for target' or 'Disabled'
@@ -18105,9 +18106,93 @@ function Silent:FastCastModule()
 end
 function Silent:CapabilityProblem()
     if self.config.Universal then return self.melee:CapabilityProblem() end
+    if self:VisualizeObjects() then return end
     for _,name in ipairs({'hookfunction','checkcaller'}) do
         if type(getfenv()[name])~='function' then return 'Unavailable: missing '..name end
     end
+end
+-- Criminality's Visualize event is also available in executors without hooks.
+function Silent:VisualizeObjects()
+    local events2=Storage:FindFirstChild('Events2')
+    local visualize=events2 and events2:FindFirstChild('Visualize')
+    local events=Storage:FindFirstChild('Events')
+    local hit=events and events:FindFirstChild('ZFKLF__H')
+    if visualize and visualize:IsA('BindableEvent') and hit and hit:IsA('RemoteEvent') then return visualize,hit end
+end
+function Silent:InstallVisualize()
+    local visualize,hit=self:VisualizeObjects()
+    if not visualize then return false end
+    if self.visualizeObject==visualize and self.hitRemote==hit then return true end
+    if self.visualizeConnection then self.visualizeConnection:Disconnect() end
+    self.visualizeObject,self.hitRemote=visualize,hit
+    self.visualizeConnection=visualize.Event:Connect(function(...)
+        local ok,problem=pcall(self.Visualize,self,...)
+        if not ok then self:Log('error','visualize',tostring(problem),nil,1) end
+    end)
+    return true
+end
+function Silent:Visualize(_,identifier,_,tool,_,origin,directions)
+    local s=self.config
+    if not self.alive or not s.Enabled or s.Universal or not self.engine.focused
+        or Input:GetFocusedTextBox() or self.library:IsInteracting() or self.library:IsPointerOverUI()
+        or (s.PauseMenu and self.library.open) then return end
+    local character=Players.LocalPlayer.Character
+    if not character or character:FindFirstChildOfClass('Tool')~=tool
+        or character:FindFirstChildOfClass('ForceField') then return end
+    if type(identifier)~='string' and type(identifier)~='number' then return end
+    if type(directions)~='table' or #directions<1 or #directions>128 then return end
+    for _,direction in ipairs(directions) do if not finite(direction) then return end end
+    -- Refresh filters at the actual shot, including walls and friend changes.
+    local p=self.gunContext
+    if not p or not p.Target or p.Tool~=tool then return end
+    local target=self.engine:Candidate(p.Target.Player,workspace.CurrentCamera,p.Root,s,self.ray)
+    if not target then return end
+    if s.SkipDowned then
+        local hum=p.Target.Character:FindFirstChildOfClass('Humanoid')
+        if self.melee:DownedState(p.Target.Player,p.Target.Character,hum) and hum.Health<=15 then return end
+    end
+    if not finite(origin) then
+        local handle=tool:FindFirstChild('WeaponHandle',true) or tool:FindFirstChild('Handle',true)
+        local muzzle=handle and (handle:FindFirstChild('FirePoint',true) or handle:FindFirstChild('Muzzle',true))
+        origin=muzzle and (muzzle:IsA('Attachment') and muzzle.WorldPosition or muzzle.Position) or p.CameraOrigin
+    end
+    local aim=target.Position
+    if not finite(origin) or not finite(aim) or (origin-p.Root.Position).Magnitude>s.OriginRadius
+        or (aim-origin).Magnitude<0.001 then return end
+    self.visualized=self.visualized or {}
+    local now=os.clock()
+    local count=0
+    for id,time in pairs(self.visualized) do
+        if now-time>5 then self.visualized[id]=nil else count+=1 end
+    end
+    if self.visualized[identifier] or count>=128 then return end
+    self.visualized[identifier]=now
+    if s.HitChance<=0 or (s.HitChance<100 and math.random(1,100)>s.HitChance) then return end
+    local generation=self.visualizeGeneration or 0
+    local remote,part=self.hitRemote,target.Part
+    task.delay(0,function()
+        if generation~=(self.visualizeGeneration or 0) or not self.alive or not s.Enabled or s.Universal
+            or not self.engine.focused or Input:GetFocusedTextBox() or self.library:IsInteracting()
+            or self.library:IsPointerOverUI() or (s.PauseMenu and self.library.open)
+            or Players.LocalPlayer.Character~=character or tool.Parent~=character or not tool.Enabled then return end
+        local fresh=self.engine:Candidate(target.Player,workspace.CurrentCamera,p.Root,s,self.ray)
+        if not fresh or fresh.Part~=part then return end
+        local hum=character:FindFirstChildOfClass('Humanoid')
+        if not hum or hum.Health<=0 or character:FindFirstChildOfClass('ForceField') then return end
+        local targetHum=target.Player.Character:FindFirstChildOfClass('Humanoid')
+        if s.SkipDowned and self.melee:DownedState(target.Player,target.Player.Character,targetHum)
+            and targetHum.Health<=15 then return end
+        local delta=part.Position-origin
+        if delta.Magnitude<0.001 then return end
+        for index=1,#directions do
+            remote:FireServer(utf8.char(129480),tool,identifier,index,part,part.Position,delta.Unit)
+            self:Count('visualize.reported')
+        end
+        if s.ShowTracers then
+            self:QueueTrace({Origin=origin,Original=directions[1],Sent=delta,End=part.Position,
+                Time=os.clock(),Redirected=true,Hit=false,Reason='Hit report sent; server damage unconfirmed'})
+        end
+    end)
 end
 function Silent:InstallEffectsHook()
     if self.effectsHook then return true end
@@ -18144,7 +18229,7 @@ function Silent:InstallEffectsHook()
     return true
 end
 function Silent:Shoot(caller,args)
-    if self.config.Universal then return end
+    if self.config.Universal or self:VisualizeObjects() then return end
     local p=self.gunContext
     if args[1]~='Shoot' then return end
     self:Count('shoot.seen')
@@ -18266,7 +18351,9 @@ function Silent:Step(now)
     else
         self:Equip(tool)
     end
-    if not s.Universal and (not self.projectileHook or not self.effectsAttempted) then
+    local visualize=not s.Universal and self:InstallVisualize()
+    if visualize then self.Backend='Criminality Visualize' end
+    if not s.Universal and not visualize and (not self.projectileHook or not self.effectsAttempted) then
         if self.installing then self:SetStatus('Loading FastCast adapter'); return end
         if now<(self.nextInstall or 0) then return end
         self.nextInstall=now+2; self.installing=true
@@ -18426,7 +18513,7 @@ function Silent:AimLaunch(caller,method,args,localShot)
     return sent,type(velocity)=='number' and velocity or unit*speed
 end
 function Silent:Projectile(caller,method,args)
-    if self.config.Universal then return end
+    if self.config.Universal or self:VisualizeObjects() then return end
     -- Observation only. The gun's shared direction list was already changed upstream.
     self:Count('projectile.seen')
     local launch=self.launches and self.launches[args[2]]
@@ -18654,6 +18741,7 @@ function Silent:Destroy()
     if not self.alive then return end
     self.alive=false; self:Reset(); self.tool,self.ballistics=nil,nil
     if self.connection then self.connection:Disconnect() end
+    if self.visualizeConnection then self.visualizeConnection:Disconnect(); self.visualizeConnection=nil end
     if self.projectileHook and self.projectileHook.Owner==self then self.projectileHook.Owner=nil end
     if self.effectsHook and self.effectsHook.Owner==self then self.effectsHook.Owner=nil end
     if self.raycastHook and self.raycastHook.SilentOwner==self then self.raycastHook.SilentOwner=nil end
