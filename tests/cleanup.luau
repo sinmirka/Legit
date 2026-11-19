@@ -25,7 +25,7 @@ MOCK.files['Legit/Universal/configs/default.json']=MOCK.services.HttpService:JSO
     World_BloomSize=999,Character_SpinPitch=999,Labels_Tool=true}})
 button('Load profile').callback()
 assert(app.Config.Aim.OffsetX==0 and not app.Config.Aim.TargetLine and app.Config.ESP.VisibleColors==nil
-    and app.Config.ObjectESP.Labels and not app.Config.Debug.Enabled and app.Config.World.BloomSize==24
+    and app.Config.ObjectESP.Labels and app.Config.Debug.Enabled and app.Config.World.BloomSize==24
     and app.Config.Character.SpinPitch==70,'old profiles cannot restore removed options')
 app:Unload()
 print('PASS compact UI: 44 removed settings, core functions retained, unified diagnostics and legacy profile defaults')

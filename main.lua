@@ -92,7 +92,7 @@ library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
-    Debug={Enabled=false,Console=false,CaptureRays=false},
+    Debug={Enabled=true,Console=false,CaptureRays=true,AutoSave=true},
     Combat={WallBang=false},
     DealerStock={Enabled=false,Notify=true,Items='All'},
     Projectiles={C4=false,Rockets=false,Speed=100},
@@ -146,6 +146,9 @@ function app:DebugContext()
         MeleeEnabled=config.Melee.Enabled,AutoAttack=config.Melee.AutoAttack,Range=config.Melee.Range,
         Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,SkipDowned=config.Melee.SkipDowned,
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
+    data.LogSaveStatus=logger and logger.AutoSaveStatus or 'not started'
+    data.WorldScanError=scanner and scanner.LastError or 'none'
+    data.ToyStatus=toys and toys.Status or 'not started'
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     data.SilentStatus=silent and silent.Status or 'not started'
     data.SilentShotStatus=silent and silent.ShotStatus or 'not started'
@@ -192,13 +195,14 @@ function app:Unload()
     if silent then clean('silent aim',function() silent:Destroy() end) end
     if melee then clean('melee',function() melee:Destroy() end) end
     if engine then clean('engine',function() engine:Destroy() end) end
+    if logger then clean('diagnostics',function() logger:Destroy() end) end
     clean('UI',function() library:Unload() end)
     if renderer then clean('renderer',function() renderer:Destroy() end) end
 end
 env.Legit=app
 local ok,message=xpcall(function()
     library:init()
-    logger=remote('src/Diagnostics.lua')().new(config.Debug)
+    logger=remote('src/Diagnostics.lua')().new(config.Debug,1200)
     app.Logger=logger
     local Engine=remote('src/Engine.lua')()
     engine=Engine.new(config,library,drawingAPI)
@@ -227,6 +231,7 @@ local ok,message=xpcall(function()
         if tools then pcall(tools.Destroy,tools) end
         if melee then pcall(melee.Destroy,melee) end
         if engine then pcall(engine.Destroy,engine) end
+        if logger then pcall(logger.Destroy,logger) end
         if renderer then renderer:Destroy() end
         app.Alive=false
         if env.Legit==app then env.Legit=nil end
@@ -253,6 +258,7 @@ local ok,message=xpcall(function()
     local function toggle(section,label,group,key)
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
+            logger:Write('info','Settings',group..'.'..key,'Toggle changed',{Value=value})
             refreshTools(group)
             if group=='Combat' then engine:ResetTarget(); silent:Reset(); melee:Reset() end
             if group=='Silent' then silent:Reset() end
@@ -273,6 +279,7 @@ local ok,message=xpcall(function()
         return remember(group,key,section:AddSlider({text=label,flag=flag(group,key),value=config[group][key],min=min,max=max,
             increment=step or 1,suffix=suffix or '',callback=function(value)
                 config[group][key]=value
+                logger:Write('info','Settings',group..'.'..key,'Value changed',{Value=value},0.1)
                 refreshTools(group)
                 if group=='Silent' then silent:Reset() end
                 if group=='Melee' then melee:Reset() end
@@ -282,6 +289,7 @@ local ok,message=xpcall(function()
     local function select(section,label,group,key,choices)
         local option=section:AddList({text=label,flag=flag(group,key),selected=config[group][key],values=choices,callback=function(value)
             config[group][key]=value
+            logger:Write('info','Settings',group..'.'..key,'Selection changed',{Value=value})
             refreshTools(group)
             if group=='Silent' then silent:Reset() end
             if group=='Melee' then melee:Reset() end
@@ -293,6 +301,7 @@ local ok,message=xpcall(function()
     local function color(section,label,group,key)
         return remember(group,key,section:AddColor({text=label,flag=flag(group,key),color=config[group][key],callback=function(value,transparency)
             config[group][key]=value
+            logger:Write('info','Settings',group..'.'..key,'Color changed',{Value=value,Transparency=transparency},0.1)
             refreshTools(group)
             config.Alpha[flag(group,key)]=1-transparency
             if group=='Interface' then library.theme.Accent=value; library:SetTheme(library.theme) end
@@ -599,7 +608,7 @@ local ok,message=xpcall(function()
         library:SendNotification((engine.Status or 'Aim off')..'\nMelee: '..melee.Status..'\nSilent: '..silent.Status
             ..'\nShot: '..silent.ShotStatus..'\nDirection: '..(silent.DirectionStatus or 'No redirected direction observed')
             ..'\nObjects: '..objects.Status..'\nStock: '..stock.Status
-            ..'\nProjectiles: '..projectiles.Status..'\nToy: '..toys.Status,12)
+            ..'\nProjectiles: '..projectiles.Status..'\nToy: '..toys.Status..'\nLogs: '..(logger.AutoSaveStatus or 'Starting'),12)
     end})
     local function clearDiagnostics()
         logger:Clear(); melee.Counters={}; melee.lastSummary=0; silent.Counters={}; silent.lastSummary=0
@@ -635,7 +644,16 @@ local ok,message=xpcall(function()
     stock:Start()
     projectiles:Start()
     toys:Start()
+    local initialSettings={}
+    for group,values in pairs(config) do
+        for key,value in pairs(values) do initialSettings[group..'.'..key]=value end
+    end
+    logger:Write('info','Settings','initial','Initial configuration',initialSettings)
+    logger:Start(function() return app:DebugContext() end)
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
-if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end
+if not ok then
+    if logger then logger:Write('error','App','startup',tostring(message)) end
+    app:Unload(); error('[Legit] '..tostring(message),0)
+end
 return app

@@ -18048,11 +18048,14 @@ local function guardedCall(state,original,callback,...)
     local thread=coroutine.running() or state
     if state.Busy[thread] then return original(...) end
     state.Busy[thread]=true
+    local started=os.clock()
     local args=table.pack(...)
     local ok,problem=pcall(callback,args)
     if not ok and state.Owner then state.Owner:Log('error','adapter',tostring(problem),nil,1) end
     local results=table.pack(pcall(original,table.unpack(args,1,args.n)))
     state.Busy[thread]=nil
+    local elapsed=os.clock()-started
+    if elapsed>0.025 and state.Owner then state.Owner:Log('warn','hook.slow','Slow launch call',{Seconds=elapsed}) end
     if not results[1] then error(results[2],0) end
     return table.unpack(results,2,results.n)
 end
@@ -19679,7 +19682,7 @@ function Toys:Destroy()
 end
 return Toys
 ]====]
-files["src/Diagnostics.lua"]=[====[-- Bounded local diagnostics. No network transport; file/clipboard export is explicit.
+files["src/Diagnostics.lua"]=[====[-- Local diagnostics. Hooks write memory only; periodic persistence runs on Heartbeat.
 local Diagnostics={}
 Diagnostics.__index=Diagnostics
 local function clean(value,limit)
@@ -19694,7 +19697,7 @@ end
 function Diagnostics:RefreshEnvironment()
     self.environment.PlaceId=game.PlaceId or 'unknown'
     self.environment.GameId=game.GameId or 'unknown'
-    self.environment.Build='obsidian-diagnostics-v1'
+    self.environment.Build='obsidian-autolog-v2'
     for _,name in ipairs({'hookfunction','hookmetamethod','getnamecallmethod','checkcaller','getcallingscript','newcclosure','writefile','setclipboard'}) do
         self.environment[name]=type(getfenv()[name])=='function'
     end
@@ -19705,7 +19708,7 @@ function Diagnostics:RefreshEnvironment()
 end
 function Diagnostics.new(settings,capacity)
     local self=setmetatable({settings=settings,capacity=capacity or 400,entries={},head=0,count=0,
-        total=0,throttles={},states={},started=os.clock(),environment={}},Diagnostics)
+        total=0,throttles={},states={},started=os.clock(),environment={SessionUnix=os.time()}},Diagnostics)
     self:RefreshEnvironment()
     return self
 end
@@ -19721,6 +19724,7 @@ function Diagnostics:Write(level,component,event,message,data,interval)
     self.head=self.head%self.capacity+1
     self.entries[self.head]=line
     self.count=math.min(self.count+1,self.capacity); self.total+=1
+    self.dirty=true
     if self.settings.Console then pcall(print,'[Legit] '..line) end
     return true
 end
@@ -19733,6 +19737,7 @@ end
 function Diagnostics:Clear()
     self.entries,self.throttles,self.states={},{},{}
     self.head,self.count,self.total=0,0,0
+    self.lastJournalTotal=0; self.dirty=true
 end
 function Diagnostics:Report(context)
     self:RefreshEnvironment()
@@ -19754,6 +19759,83 @@ function Diagnostics:Save(context)
     local path='Legit/Universal/logs/latest.txt'
     writefile(path,self:Report(context))
     return path
+end
+function Diagnostics:Context()
+    if not self.context then return {} end
+    local ok,value=pcall(self.context)
+    return ok and value or {ContextError=tostring(value)}
+end
+function Diagnostics:Flush(force)
+    if self.saving or (not force and not self.dirty) then return end
+    if self.settings.AutoSave==false then return end
+    if type(writefile)~='function' or type(makefolder)~='function' then self.AutoSaveStatus='File API unavailable'; return end
+    self.saving=true
+    local ok,problem=pcall(function()
+        local context=self:Context()
+        local report=self:Report(context)
+        if #report>262144 then report=report:sub(1,4096)..'\n[Older report text truncated]\n'..report:sub(-250000) end
+        local directory='Legit/Universal/logs/'
+        for _,path in ipairs({'Legit','Legit/Universal','Legit/Universal/logs'}) do
+            if type(isfolder)~='function' or not isfolder(path) then pcall(makefolder,path) end
+        end
+        if not self.rotated then
+            self.rotated=true
+            if type(isfile)=='function' and type(readfile)=='function' and isfile(directory..'latest.txt') then
+                local previous=readfile(directory..'latest.txt')
+                writefile(directory..'previous.txt',previous:sub(-262144))
+            end
+        end
+        writefile(directory..'latest.txt',report)
+        local first=math.max(self.lastJournalTotal or 0,self.total-self.count)
+        local lines={}
+        for serial=first+1,self.total do
+            local index=(self.head-(self.total-serial)-1)%self.capacity+1
+            table.insert(lines,self.entries[index])
+        end
+        if #lines>0 then
+            local text=table.concat(lines,'\n')..'\n'
+            if #(self.journalText or '')+#text>262144 then self.journalIndex=(self.journalIndex or 1)%4+1; self.journalText='' end
+            self.journalText=((self.journalText or '')..text):sub(-262144)
+            writefile(directory..'events-'..tostring(self.journalIndex or 1)..'.log',self.journalText)
+        end
+        self.lastJournalTotal=self.total; self.dirty=false
+        self.AutoSaveStatus='Saved: '..directory..'latest.txt'
+    end)
+    self.saving=false
+    if not ok then self.AutoSaveStatus='Save failed: '..tostring(problem) end
+end
+function Diagnostics:Start(context)
+    self.context=context; self.AutoSaveStatus='Starting'
+    self:Write('info','App','start','Session started',self:Context())
+    self:Flush(true)
+    local lastPulse,nextFlush=os.clock(),os.clock()+2
+    self.heartbeat=game:GetService('RunService').Heartbeat:Connect(function(dt)
+        local now=os.clock()
+        local elapsed=math.max(now-lastPulse,type(dt)=='number' and dt or 0); lastPulse=now
+        if elapsed>0.5 then self:Write('warn','Runtime','stall','Long frame',{Seconds=string.format('%.3f',elapsed)}) end
+        if now<nextFlush then return end; nextFlush=now+2
+        self:Write('info','Runtime','snapshot','State snapshot',self:Context())
+        self:Flush()
+    end)
+    local function connectError(serviceName,signalName,callback)
+        local ok,connection=pcall(function() return game:GetService(serviceName)[signalName]:Connect(callback) end)
+        if ok then self[serviceName]=connection end
+    end
+    connectError('ScriptContext','Error',function(message,stack)
+        self:Write('error','Runtime','script',tostring(message)..' '..tostring(stack))
+    end)
+    connectError('LogService','MessageOut',function(message,kind)
+        if kind==Enum.MessageType.MessageWarning or kind==Enum.MessageType.MessageError then
+            self:Write('warn','Runtime','console',message)
+        end
+    end)
+end
+function Diagnostics:Destroy()
+    if self.destroyed then return end
+    self.destroyed=true
+    self:Write('info','App','stop','Session ended',self:Context())
+    self:Flush(true)
+    for _,connection in pairs({self.heartbeat,self.ScriptContext,self.LogService}) do connection:Disconnect() end
 end
 return Diagnostics
 ]====]
@@ -19851,7 +19933,7 @@ library.toggleKey=Enum.KeyCode.RightShift
 library.theme=table.clone(library.themes[1].theme)
 local config={
     Alpha={},Interface={Accent=library.theme.Accent,MenuKey=Enum.KeyCode.RightShift,Scale=100},
-    Debug={Enabled=false,Console=false,CaptureRays=false},
+    Debug={Enabled=true,Console=false,CaptureRays=true,AutoSave=true},
     Combat={WallBang=false},
     DealerStock={Enabled=false,Notify=true,Items='All'},
     Projectiles={C4=false,Rockets=false,Speed=100},
@@ -19905,6 +19987,9 @@ function app:DebugContext()
         MeleeEnabled=config.Melee.Enabled,AutoAttack=config.Melee.AutoAttack,Range=config.Melee.Range,
         Interval=config.Melee.Interval,SwingWindow=config.Melee.SwingWindow,PauseMenu=config.Melee.PauseMenu,SkipDowned=config.Melee.SkipDowned,
         EquippedTool=equipped and equipped.Name or 'none',DiagnosticsEnabled=config.Debug.Enabled}
+    data.LogSaveStatus=logger and logger.AutoSaveStatus or 'not started'
+    data.WorldScanError=scanner and scanner.LastError or 'none'
+    data.ToyStatus=toys and toys.Status or 'not started'
     if melee then for key,value in pairs(melee.Counters) do data['Melee.'..key]=value end end
     data.SilentStatus=silent and silent.Status or 'not started'
     data.SilentShotStatus=silent and silent.ShotStatus or 'not started'
@@ -19951,13 +20036,14 @@ function app:Unload()
     if silent then clean('silent aim',function() silent:Destroy() end) end
     if melee then clean('melee',function() melee:Destroy() end) end
     if engine then clean('engine',function() engine:Destroy() end) end
+    if logger then clean('diagnostics',function() logger:Destroy() end) end
     clean('UI',function() library:Unload() end)
     if renderer then clean('renderer',function() renderer:Destroy() end) end
 end
 env.Legit=app
 local ok,message=xpcall(function()
     library:init()
-    logger=remote('src/Diagnostics.lua')().new(config.Debug)
+    logger=remote('src/Diagnostics.lua')().new(config.Debug,1200)
     app.Logger=logger
     local Engine=remote('src/Engine.lua')()
     engine=Engine.new(config,library,drawingAPI)
@@ -19986,6 +20072,7 @@ local ok,message=xpcall(function()
         if tools then pcall(tools.Destroy,tools) end
         if melee then pcall(melee.Destroy,melee) end
         if engine then pcall(engine.Destroy,engine) end
+        if logger then pcall(logger.Destroy,logger) end
         if renderer then renderer:Destroy() end
         app.Alive=false
         if env.Legit==app then env.Legit=nil end
@@ -20012,6 +20099,7 @@ local ok,message=xpcall(function()
     local function toggle(section,label,group,key)
         local option=section:AddToggle({text=label,flag=flag(group,key),state=config[group][key],callback=function(value)
             config[group][key]=value
+            logger:Write('info','Settings',group..'.'..key,'Toggle changed',{Value=value})
             refreshTools(group)
             if group=='Combat' then engine:ResetTarget(); silent:Reset(); melee:Reset() end
             if group=='Silent' then silent:Reset() end
@@ -20032,6 +20120,7 @@ local ok,message=xpcall(function()
         return remember(group,key,section:AddSlider({text=label,flag=flag(group,key),value=config[group][key],min=min,max=max,
             increment=step or 1,suffix=suffix or '',callback=function(value)
                 config[group][key]=value
+                logger:Write('info','Settings',group..'.'..key,'Value changed',{Value=value},0.1)
                 refreshTools(group)
                 if group=='Silent' then silent:Reset() end
                 if group=='Melee' then melee:Reset() end
@@ -20041,6 +20130,7 @@ local ok,message=xpcall(function()
     local function select(section,label,group,key,choices)
         local option=section:AddList({text=label,flag=flag(group,key),selected=config[group][key],values=choices,callback=function(value)
             config[group][key]=value
+            logger:Write('info','Settings',group..'.'..key,'Selection changed',{Value=value})
             refreshTools(group)
             if group=='Silent' then silent:Reset() end
             if group=='Melee' then melee:Reset() end
@@ -20052,6 +20142,7 @@ local ok,message=xpcall(function()
     local function color(section,label,group,key)
         return remember(group,key,section:AddColor({text=label,flag=flag(group,key),color=config[group][key],callback=function(value,transparency)
             config[group][key]=value
+            logger:Write('info','Settings',group..'.'..key,'Color changed',{Value=value,Transparency=transparency},0.1)
             refreshTools(group)
             config.Alpha[flag(group,key)]=1-transparency
             if group=='Interface' then library.theme.Accent=value; library:SetTheme(library.theme) end
@@ -20358,7 +20449,7 @@ local ok,message=xpcall(function()
         library:SendNotification((engine.Status or 'Aim off')..'\nMelee: '..melee.Status..'\nSilent: '..silent.Status
             ..'\nShot: '..silent.ShotStatus..'\nDirection: '..(silent.DirectionStatus or 'No redirected direction observed')
             ..'\nObjects: '..objects.Status..'\nStock: '..stock.Status
-            ..'\nProjectiles: '..projectiles.Status..'\nToy: '..toys.Status,12)
+            ..'\nProjectiles: '..projectiles.Status..'\nToy: '..toys.Status..'\nLogs: '..(logger.AutoSaveStatus or 'Starting'),12)
     end})
     local function clearDiagnostics()
         logger:Clear(); melee.Counters={}; melee.lastSummary=0; silent.Counters={}; silent.lastSummary=0
@@ -20394,9 +20485,18 @@ local ok,message=xpcall(function()
     stock:Start()
     projectiles:Start()
     toys:Start()
+    local initialSettings={}
+    for group,values in pairs(config) do
+        for key,value in pairs(values) do initialSettings[group..'.'..key]=value end
+    end
+    logger:Write('info','Settings','initial','Initial configuration',initialSettings)
+    logger:Start(function() return app:DebugContext() end)
     library:SendNotification('Legit loaded ['..renderMode..'] | RightShift: menu | END: unload',5)
 end,debug.traceback)
-if not ok then app:Unload(); error('[Legit] '..tostring(message),0) end
+if not ok then
+    if logger then logger:Write('error','App','startup',tostring(message)) end
+    app:Unload(); error('[Legit] '..tostring(message),0)
+end
 return app
 ]====]
 local chunk,message=loadstring(files['main.lua'],'@Legit/main.lua')

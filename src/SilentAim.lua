@@ -23,11 +23,14 @@ local function guardedCall(state,original,callback,...)
     local thread=coroutine.running() or state
     if state.Busy[thread] then return original(...) end
     state.Busy[thread]=true
+    local started=os.clock()
     local args=table.pack(...)
     local ok,problem=pcall(callback,args)
     if not ok and state.Owner then state.Owner:Log('error','adapter',tostring(problem),nil,1) end
     local results=table.pack(pcall(original,table.unpack(args,1,args.n)))
     state.Busy[thread]=nil
+    local elapsed=os.clock()-started
+    if elapsed>0.025 and state.Owner then state.Owner:Log('warn','hook.slow','Slow launch call',{Seconds=elapsed}) end
     if not results[1] then error(results[2],0) end
     return table.unpack(results,2,results.n)
 end
