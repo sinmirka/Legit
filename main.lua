@@ -115,7 +115,7 @@ local config={
         Target=Color3.fromRGB(255,205,90),Text=Color3.fromRGB(245,245,250),
         HealthLow=Color3.fromRGB(255,70,85),HealthHigh=Color3.fromRGB(80,235,130),
     },
-    Labels={Enabled=true,Names=true,Health=true,Distance=true,Status=false,Size=13},
+    Labels={Enabled=true,Names=true,Health=true,Distance=true,Tool=true,Status=false,Size=13},
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
@@ -352,6 +352,7 @@ local ok,message=xpcall(function()
     toggle(left,'Health numbers','Labels','Health')
     toggle(left,'Downed / Ragdolled status','Labels','Status')
     toggle(left,'Distance','Labels','Distance')
+    toggle(left,'Equipped tool','Labels','Tool')
     slider(right,'Font size','Labels','Size',10,24,1,' px')
     left,right=sections('Melee','Melee Aura / Melee Assist','Melee filters')
     toggle(left,'Enable melee aura','Melee','Enabled')

@@ -19,7 +19,7 @@ for _,flag in ipairs({'Overlay_Box','Overlay_BoxStyle','Overlay_Thickness','Over
     'Overlay_CornerLength','Overlay_BoxFill','Overlay_FillOpacity','Overlay_Skeleton','Overlay_SkeletonThickness',
     'Overlay_Tracers','Overlay_TracerOrigin','Overlay_TracerThickness','Overlay_HealthBar','Overlay_HealthWidth',
     'Colors_Box','Colors_Tracer','Colors_Skeleton','Colors_TextOutline','ESP_Opacity','ESP_Fade','ESP_FadeStart',
-    'ESP_Rainbow','ESP_RainbowSpeed','ESP_Pulse','ESP_PulseSpeed','Labels_NameMode','Labels_Tool','Labels_Team',
+    'ESP_Rainbow','ESP_RainbowSpeed','ESP_Pulse','ESP_PulseSpeed','Labels_NameMode','Labels_Team',
     'Labels_Font','Labels_TextOutline','Labels_Opacity','Labels_Offset'}) do
     assert(not app.Library.options[flag],'removed visual control: '..flag)
 end
@@ -155,6 +155,17 @@ assert(#record.Drawings==5 and not record.Box and not record.Bones and not recor
 for _,object in ipairs(record.Drawings) do assert(object.Class=='Text','only labels are allocated') end
 assert(record.TopText.Font==2 and record.TopText.Transparency>0,'legacy text styles ignored')
 assert(math.abs(record.Highlight.FillTransparency-(1-e.FillOpacity*0.3))<1e-9,'per-color opacity preserved; legacy effects ignored')
+local equipped=Instance.new('Tool'); equipped.Name='Crowbar'; equipped.Parent=other.Character
+other.Character.Children.Tool=equipped
+tested:ESP(camera,localRoot)
+assert(record.BottomText.Text:find('Crowbar',1,true),'equipped tool label')
+equipped.Name='Wrench'; tested:ESP(camera,localRoot)
+assert(record.BottomText.Text:find('Wrench',1,true) and not record.BottomText.Text:find('Crowbar',1,true),'tool label updates')
+option('Labels_Tool'):SetState(false); tested:ESP(camera,localRoot)
+assert(not record.BottomText.Text:find('Wrench',1,true),'tool label toggle')
+option('Labels_Tool'):SetState(true)
+other.Character.Children.Tool=nil; equipped.Parent=nil; tested:ESP(camera,localRoot)
+assert(not record.BottomText.Text:find('Wrench',1,true),'unequipping clears tool label')
 e.HealthColors=true; app.Config.Labels.Status=true
 for _,hp in ipairs({1,15,50,100}) do
     humanoid.Health=hp; humanoid.PlatformStand=true; tested:ESP(camera,localRoot)

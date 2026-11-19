@@ -319,6 +319,10 @@ function Engine:DrawLabels(record, other, character, humanoid, camera, distance)
     if l.Names then table.insert(top,other.DisplayName..' (@'..other.Name..')') end
     if l.Health then table.insert(bottom,string.format('HP %d / %d',math.ceil(humanoid.Health),math.ceil(humanoid.MaxHealth))) end
     if l.Distance then table.insert(bottom,string.format('%d studs',math.floor(distance))) end
+    if l.Tool then
+        local tool=character:FindFirstChildOfClass('Tool')
+        if tool then table.insert(bottom,tool.Name) end
+    end
     local labels={record.TopText,record.BottomText}
     for _,label in ipairs(labels) do
         label.Size,label.Font,label.Outline=l.Size,2,false
