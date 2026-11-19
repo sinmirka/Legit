@@ -20,14 +20,18 @@ assert(not control:TryControl(rocket),'unattributed projectile requires own rece
 tool.Activated:Fire()
 assert(not control:TryControl(projectile('RPG_Rocket',{})),'explicit foreign ownership always rejected')
 local force=Instance.new('BodyForce'); force.Parent=rocket; rocket.Children.BodyForce=force
+local rot=Instance.new('Part'); rot.Parent=rocket; rocket.Children.RotPart=rot
+local angular=Instance.new('BodyAngularVelocity'); angular.Parent=rot; rot.Children.BodyAngularVelocity=angular
 workspace.DescendantAdded:Fire(rocket); control:Step(1/60)
 assert(control.active and control.active.Object==rocket,'streamed projectile acquired after own launcher activation')
 assert(root.Anchored and camera.CameraSubject==rocket and app.Engine.ProjectileControl,'camera and character acquired')
 assert(force.Parent==nil,'old mover suspended')
+assert(angular.Parent==nil,'nested rocket spin suspended')
 control:Step(0.1); assert(control.active.Mover.Position.Z>rocket.Position.Z,'rocket steering follows camera')
 local mover=control.active.Mover
 MOCK.services.UserInputService.InputBegan:Fire({KeyCode=Enum.KeyCode.X})
 assert(not root.Anchored and camera.CameraSubject==hum and mover.Destroyed and force.Parent==rocket,'X restores camera/root/movers')
+assert(angular.Parent==rot,'nested mover returns to its original parent')
 local c4=projectile('TransIgnore',MOCK.players.LocalPlayer)
 assert(control:TryControl(c4),'own C4')
 control:Step(0.1); assert(control.active.Mover.Velocity.Magnitude==s.Speed,'C4 velocity')

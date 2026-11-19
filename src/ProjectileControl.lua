@@ -21,7 +21,9 @@ function Control:Release(reason)
         for _,mover in ipairs(active.Created) do mover:Destroy() end
         if active.Object.Parent then
             if active.Object.Massless==true then active.Object.Massless=active.Massless end
-            for _,mover in ipairs(active.Suspended) do if not mover.Parent then pcall(function() mover.Parent=active.Object end) end end
+            for _,entry in ipairs(active.Suspended) do
+                if not entry.Object.Parent then pcall(function() entry.Object.Parent=entry.Parent end) end
+            end
         end
         if active.Root.Parent and active.Root.Anchored==true then active.Root.Anchored=active.Anchored end
         if active.Camera.CameraSubject==active.Object then
@@ -31,7 +33,7 @@ function Control:Release(reason)
     self.Status=reason or 'Released'
 end
 function Control:TryControl(object)
-    if self.active or not object.Parent or not object:IsA('BasePart') then return false end
+    if not self.alive or not self.engine.focused or self.active or not object.Parent or not object:IsA('BasePart') then return false end
     local c4=object.Name=='TransIgnore'
     if not ((c4 and self.config.C4) or (rockets[object.Name] and self.config.Rockets)) then return false end
     local character=Players.LocalPlayer.Character
@@ -58,9 +60,12 @@ function Control:TryControl(object)
     for _,child in ipairs(object:GetChildren()) do
         if child:IsA('BodyMover') or child:IsA('BodyForce') or child:IsA('BodyAngularVelocity')
             or child:IsA('BodyVelocity') or child:IsA('BodyPosition') or child:IsA('BodyGyro') then
-            table.insert(active.Suspended,child); child.Parent=nil
+            table.insert(active.Suspended,{Object=child,Parent=child.Parent}); child.Parent=nil
         end
     end
+    local rotPart=object:FindFirstChild('RotPart')
+    local angular=rotPart and rotPart:FindFirstChild('BodyAngularVelocity')
+    if angular then table.insert(active.Suspended,{Object=angular,Parent=angular.Parent}); angular.Parent=nil end
     local mover=Instance.new(c4 and 'BodyVelocity' or 'BodyPosition')
     table.insert(active.Created,mover)
     mover.MaxForce=Vector3.new(1e9,1e9,1e9)
