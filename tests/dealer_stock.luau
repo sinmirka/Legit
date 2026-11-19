@@ -44,13 +44,14 @@ local price=attach('IntValue','M4A1',dealer); price.Value=0
 local noise=attach('IntValue','AKS-74U',workspace); noise.Value=999
 local app=assert(loadstring(SOURCES['main.lua']))()
 local stock,s=app.DealerStock,app.Config.DealerStock
+local notifications={}; app.Library.SendNotification=function(_,text) table.insert(notifications,text) end
 assert(not s.Enabled and #stock.entries==0,'disabled reads nothing')
 s.Enabled=true; stock:Step(); assert(#stock.entries==0 and scans==0,'enabling schedules shared scan')
 local function drain() for _=1,100 do app.WorldScanner:Step(); stock:Step() end end
 drain()
+assert(#notifications==0,'initial asynchronous discovery is a silent baseline')
 assert(stock.Text:find('AKS-74U: 3',1,true) and stock.Text:find('M4A1: 0',1,true),'snapshot reads actual dealer values')
 assert(not stock.Text:find('999',1,true),'nondealer values excluded')
-local notifications={}; app.Library.SendNotification=function(_,text) table.insert(notifications,text) end
 ammo.Value=5; stock:Step(); assert(#notifications==1 and notifications[1]:find('AKS-74U: 5',1,true),'changed stock notifies once')
 stock:Step(); assert(#notifications==1,'unchanged value does not spam')
 s.Notify=false; ammo.Value=6; stock:Step(); assert(#notifications==1,'notification switch')

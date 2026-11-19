@@ -3,7 +3,8 @@ local RunService=game:GetService('RunService')
 local Scanner={}
 Scanner.__index=Scanner
 function Scanner.new()
-    return setmetatable({alive=true,listeners={},stack={},pending={},head=1,visited={},Budget=48,Seconds=0.002},Scanner)
+    return setmetatable({alive=true,listeners={},stack={},pending={},head=1,tail=0,
+        visited=setmetatable({},{__mode='k'}),Budget=48,Seconds=0.002},Scanner)
 end
 function Scanner:Subscribe(callback)
     local entry={Connected=true,Callback=callback}
@@ -11,7 +12,7 @@ function Scanner:Subscribe(callback)
     table.insert(self.listeners,entry)
     return entry
 end
-function Scanner:Request() self.requested=true end
+function Scanner:Request() self.requested=true; self.Scanning=true end
 function Scanner:Emit(object)
     if not object or not object.Parent or self.visited[object] then return end
     self.visited[object]=true
@@ -25,7 +26,7 @@ end
 function Scanner:Step()
     if not self.alive then return end
     if self.requested then
-        self.requested=false; self.visited={}
+        self.requested=false; self.visited=setmetatable({},{__mode='k'})
         self.stack={{Children={workspace},Index=1}}
     end
     local started=os.clock()
@@ -34,10 +35,10 @@ function Scanner:Step()
         if os.clock()-started>=self.Seconds then break end
         local object
         -- Streamed objects are delivered before continuing the initial traversal.
-        if self.head<=#self.pending then
-            object=self.pending[self.head]; self.head+=1
+        if self.head<=self.tail then
+            object=self.pending[self.head]; self.pending[self.head]=nil; self.head+=1
         else
-            self.pending={}; self.head=1
+            self.pending={}; self.head=1; self.tail=0
             local frame=self.stack[#self.stack]
             if not frame then break end
             object=frame.Children[frame.Index]; frame.Index+=1
@@ -53,11 +54,11 @@ function Scanner:Step()
         end
         self.LastProcessed+=1
     end
-    self.Scanning=self.requested or #self.stack>0 or self.head<=#self.pending
+    self.Scanning=self.requested or #self.stack>0 or self.head<=self.tail
 end
 function Scanner:Start()
     if workspace.DescendantAdded then self.added=workspace.DescendantAdded:Connect(function(object)
-        if #self.pending-self.head<4096 then table.insert(self.pending,object) else self:Request() end
+        if self.tail-self.head<4096 then self.tail+=1; self.pending[self.tail]=object else self:Request() end
     end) end
     self.heartbeat=RunService.Heartbeat:Connect(function()
         local ok,problem=pcall(self.Step,self)

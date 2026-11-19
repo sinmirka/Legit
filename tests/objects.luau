@@ -76,6 +76,10 @@ for i=1,5000 do attach('Part','Scenery'..i,workspace) end
 app.WorldScanner:Request(); app.WorldScanner:Step()
 assert(app.WorldScanner.LastProcessed<=48 and app.WorldScanner.Scanning,'large scene work is bounded per frame')
 assert(scans==0,'large scene never calls GetDescendants')
+for _=1,5000 do workspace.DescendantAdded:Fire(extra) end
+assert(app.WorldScanner.tail-app.WorldScanner.head<=4096,'streaming queue stays bounded')
+app.WorldScanner:Step()
+assert(app.WorldScanner.pending[1]==nil,'consumed streaming references are released')
 app:Unload()
 assert(not esp.alive and esp.folder.Destroyed and next(esp.records)==nil,'unload cleanup')
 print('PASS object ESP: canonical scrap/crates/dealers, colours, streaming, range, bounded nearest rendering and cleanup')
