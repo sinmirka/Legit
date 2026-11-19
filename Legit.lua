@@ -16997,14 +16997,6 @@ local Engine = {}
 Engine.__index = Engine
 local friendGreen=Color3.fromRGB(80,235,130)
 
-local skeleton = {
-    {'Head','UpperTorso'}, {'UpperTorso','LowerTorso'},
-    {'UpperTorso','LeftUpperArm'}, {'LeftUpperArm','LeftLowerArm'}, {'LeftLowerArm','LeftHand'},
-    {'UpperTorso','RightUpperArm'}, {'RightUpperArm','RightLowerArm'}, {'RightLowerArm','RightHand'},
-    {'LowerTorso','LeftUpperLeg'}, {'LeftUpperLeg','LeftLowerLeg'}, {'LeftLowerLeg','LeftFoot'},
-    {'LowerTorso','RightUpperLeg'}, {'RightUpperLeg','RightLowerLeg'}, {'RightLowerLeg','RightFoot'},
-    {'Head','Torso'}, {'Torso','Left Arm'}, {'Torso','Right Arm'}, {'Torso','Left Leg'}, {'Torso','Right Leg'},
-}
 local function drawing(factory, class, props)
     local object = factory.new(class)
     object.Visible = false
@@ -17225,7 +17217,7 @@ function Engine:Aim(camera, root, dt)
     camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(position, destination), alpha)
 end
 function Engine:NewRecord(other, character)
-    local record = {Character=character, Drawings={}, Bones={}}
+    local record = {Character=character, Drawings={}}
     record.Highlight = Instance.new('Highlight')
     record.Highlight.Name, record.Highlight.Adornee = 'LegitHighlight', character
     record.Highlight.Parent = self.folder
@@ -17234,23 +17226,11 @@ function Engine:NewRecord(other, character)
         table.insert(record.Drawings, object)
         return object
     end
-    record.Box = add('Square', {Filled=false, ZIndex=5})
-    record.BoxOutline = add('Square', {Filled=false, Color=Color3.new(0,0,0), ZIndex=4})
-    record.Fill = add('Square', {Filled=true, ZIndex=3})
-    record.Corners, record.CornerOutlines = {}, {}
-    for i=1,8 do
-        record.Corners[i] = add('Line', {ZIndex=5})
-        record.CornerOutlines[i] = add('Line', {Color=Color3.new(0,0,0), ZIndex=4})
-    end
-    record.Tracer = add('Line', {ZIndex=2})
-    record.HealthBackground = add('Square', {Filled=true, Color=Color3.new(0,0,0), ZIndex=5})
-    record.HealthBar = add('Square', {Filled=true, ZIndex=6})
     record.TopText = add('Text', {Center=true, Outline=true, ZIndex=7})
     record.BottomText = add('Text', {Center=true, Outline=true, ZIndex=7})
     record.StatusText = add('Text', {Center=true, Outline=true, ZIndex=7})
     record.TopTextBorder = add('Text', {Center=true, Outline=true, ZIndex=6})
     record.BottomTextBorder = add('Text', {Center=true, Outline=true, ZIndex=6})
-    for i=1,#skeleton do record.Bones[i] = add('Line', {ZIndex=6}) end
     self.records[other] = record
     return record
 end
@@ -17280,14 +17260,13 @@ end
 function Engine:FriendColor(other)
     if self.friends[other]==true or self.playerModes[other.UserId]=='Friend' then return friendGreen end
 end
-function Engine:Colors(other, visible, now)
+function Engine:Colors(other, visible)
     local friend=self:FriendColor(other)
     local e, c = self.config.ESP, self.config.Colors
     local fillKey,outlineKey='Fill','Outline'
     if e.VisibleColors then fillKey,outlineKey=visible and 'VisibleFill' or 'HiddenFill',visible and 'VisibleOutline' or 'HiddenOutline' end
     local fill,outline=c[fillKey],c[outlineKey]
     if e.TeamColors and not other.Neutral then fill,outline=other.TeamColor.Color,other.TeamColor.Color; fillKey,outlineKey='Fill','Outline' end
-    if e.Rainbow then fill=Color3.fromHSV((now*e.RainbowSpeed)%1,0.8,1); outline=fill; fillKey,outlineKey='Fill','Outline' end
     if e.TargetColor and other == self.target then fill,outline=c.Target,c.Target; fillKey,outlineKey='Target','Target' end
     if friend then fill,outline=friend,friend end
     if e.HealthColors then
@@ -17317,111 +17296,46 @@ function Engine:CharacterStatus(other,character,humanoid)
     if not fallen then return '' end
     return humanoid.Health<=15 and 'Downed' or 'Ragdolled'
 end
-function Engine:DrawOverlay(record, other, character, humanoid, root, camera, distance, color, opacity, colorOpacity)
-    local o, l = self.config.Overlay, self.config.Labels
-    if not (o.Box or o.Tracers or o.Skeleton or o.HealthBar or l.Enabled) then return end
-    local position, size = self:Bounds(character, camera)
+function Engine:DrawLabels(record, other, character, humanoid, camera, distance)
+    local l=self.config.Labels
+    if not l.Enabled then return end
+    local position,size=self:Bounds(character,camera)
     if not position then return end
-    local bottomCenter = position + Vector2.new(size.X/2,size.Y)
+    local bottomCenter=position+Vector2.new(size.X/2,size.Y)
     local friend=self:FriendColor(other)
-    local boxColor = friend or (o.MatchESP and color or self.config.Colors.Box)
-    local boxOpacity=opacity*((friend or o.MatchESP) and colorOpacity or self:Opacity('Colors','Box'))
-    if o.Box then
-        record.Fill.Position, record.Fill.Size = position,size
-        record.Fill.Color, record.Fill.Transparency, record.Fill.Visible = boxColor,o.FillOpacity*boxOpacity,o.BoxFill
-        if o.BoxStyle == 'Full' then
-            record.Box.Position, record.Box.Size = position,size
-            record.Box.Color, record.Box.Thickness = boxColor,o.Thickness
-            record.Box.Transparency, record.Box.Visible = boxOpacity,true
-            record.BoxOutline.Position, record.BoxOutline.Size = position,size
-            record.BoxOutline.Thickness, record.BoxOutline.Transparency = o.Thickness+2,boxOpacity
-            record.BoxOutline.Visible = o.BlackOutline
-        else
-            local x,y,w,h = position.X,position.Y,size.X,size.Y
-            local length = math.min(w,h)*o.CornerLength
-            local segments = {
-                {x,y,x+length,y},{x,y,x,y+length},{x+w,y,x+w-length,y},{x+w,y,x+w,y+length},
-                {x,y+h,x+length,y+h},{x,y+h,x,y+h-length},{x+w,y+h,x+w-length,y+h},{x+w,y+h,x+w,y+h-length},
-            }
-            for i, segment in ipairs(segments) do
-                local line, border = record.Corners[i],record.CornerOutlines[i]
-                line.From,line.To = Vector2.new(segment[1],segment[2]),Vector2.new(segment[3],segment[4])
-                line.Color,line.Thickness,line.Transparency,line.Visible = boxColor,o.Thickness,boxOpacity,true
-                border.From,border.To,border.Thickness,border.Transparency,border.Visible = line.From,line.To,o.Thickness+2,boxOpacity,o.BlackOutline
-            end
-        end
+    local black=Color3.new(0,0,0)
+    local top,bottom={},{}
+    if l.Names then table.insert(top,other.DisplayName..' (@'..other.Name..')') end
+    if l.Health then table.insert(bottom,string.format('HP %d / %d',math.ceil(humanoid.Health),math.ceil(humanoid.MaxHealth))) end
+    if l.Distance then table.insert(bottom,string.format('%d studs',math.floor(distance))) end
+    local labels={record.TopText,record.BottomText}
+    for _,label in ipairs(labels) do
+        label.Size,label.Font,label.Outline=l.Size,2,false
+        label.Color,label.OutlineColor=friend or self.config.Colors.Text,black
+        label.Transparency=self:Opacity('Colors','Text')
     end
-    if o.Tracers then
-        local viewport = camera.ViewportSize
-        local y = o.TracerOrigin == 'Top' and 0 or o.TracerOrigin == 'Center' and viewport.Y/2 or viewport.Y
-        record.Tracer.From,record.Tracer.To = Vector2.new(viewport.X/2,y),bottomCenter
-        record.Tracer.Color,record.Tracer.Thickness = friend or self.config.Colors.Tracer,o.TracerThickness
-        record.Tracer.Transparency,record.Tracer.Visible = opacity*self:Opacity('Colors','Tracer'),true
+    record.TopText.Text=table.concat(top,'\n')
+    record.TopText.Position=position+Vector2.new(size.X/2,-l.Size-4)
+    record.TopText.Visible=#top>0
+    record.BottomText.Text=table.concat(bottom,'\n')
+    record.BottomText.Position=bottomCenter+Vector2.new(0,4)
+    record.BottomText.Visible=#bottom>0
+    if l.Status then
+        local label=record.StatusText
+        label.Text=self:CharacterStatus(other,character,humanoid)
+        label.Position=bottomCenter+Vector2.new(0,4+#bottom*(l.Size+2))
+        label.Size,label.Font,label.Outline=l.Size,2,true
+        label.OutlineColor=black
+        label.Color=label.Text=='Downed' and Color3.fromRGB(255,35,35) or Color3.fromRGB(255,180,50)
+        label.Transparency=1
+        label.Visible=label.Text~=''
     end
-    if o.HealthBar then
-        local ratio = math.clamp(humanoid.Health/math.max(1,humanoid.MaxHealth),0,1)
-        local bar = record.HealthBar
-        bar.Position = Vector2.new(position.X-o.HealthWidth-4,position.Y+size.Y*(1-ratio))
-        bar.Size,bar.Color = Vector2.new(o.HealthWidth,size.Y*ratio),self.config.Colors.HealthLow:Lerp(self.config.Colors.HealthHigh,ratio)
-        bar.Transparency,bar.Visible = opacity*(self:Opacity('Colors','HealthLow')*(1-ratio)+self:Opacity('Colors','HealthHigh')*ratio),ratio>0
-        local background = record.HealthBackground
-        background.Position,background.Size = Vector2.new(position.X-o.HealthWidth-5,position.Y-1),Vector2.new(o.HealthWidth+2,size.Y+2)
-        background.Transparency,background.Visible = opacity,true
-    end
-    if o.Skeleton then
-        for i, pair in ipairs(skeleton) do
-            local from,to = character:FindFirstChild(pair[1]),character:FindFirstChild(pair[2])
-            if from and to and from:IsA('BasePart') and to:IsA('BasePart') then
-                local p1,on1 = point(camera,from.Position)
-                local p2,on2 = point(camera,to.Position)
-                local line = record.Bones[i]
-                line.From,line.To,line.Visible = p1,p2,on1 and on2
-                line.Color,line.Thickness,line.Transparency = friend or self.config.Colors.Skeleton,o.SkeletonThickness,opacity*self:Opacity('Colors','Skeleton')
-            end
-        end
-    end
-    if l.Enabled then
-        local top,bottom = {},{}
-        if l.Names then
-            local name = l.NameMode == 'Username' and other.Name or l.NameMode == 'Both' and (other.DisplayName..' (@'..other.Name..')') or other.DisplayName
-            table.insert(top,name)
-        end
-        if l.Health then table.insert(bottom,string.format('HP %d / %d',math.ceil(humanoid.Health),math.ceil(humanoid.MaxHealth))) end
-        if l.Distance then table.insert(bottom,string.format('%d studs',math.floor(distance))) end
-        if l.Tool then
-            local tool = character:FindFirstChildOfClass('Tool')
-            if tool then table.insert(bottom,tool.Name) end
-        end
-        if l.Team then table.insert(bottom,other.Team and other.Team.Name or 'Neutral') end
-        local labels = {record.TopText,record.BottomText}
-        for _, label in ipairs(labels) do
-            label.Size,label.Font,label.Outline = l.Size,({UI=0,System=1,Plex=2,Monospace=3})[l.Font],false
-            label.Color,label.OutlineColor = friend or self.config.Colors.Text,self.config.Colors.TextOutline
-            label.Transparency = opacity*l.Opacity*self:Opacity('Colors','Text')
-        end
-        record.TopText.Text = table.concat(top,'\n')
-        record.TopText.Position = position+Vector2.new(size.X/2,-l.Size-4-l.Offset)
-        record.TopText.Visible = #top>0
-        record.BottomText.Text = table.concat(bottom,'\n')
-        record.BottomText.Position = bottomCenter+Vector2.new(0,4+l.Offset)
-        record.BottomText.Visible = #bottom>0
-        if l.Status then
-            local label=record.StatusText
-            label.Text=self:CharacterStatus(other,character,humanoid)
-            label.Position=bottomCenter+Vector2.new(0,4+l.Offset+#bottom*(l.Size+2))
-            label.Size,label.Font,label.Outline=l.Size,record.BottomText.Font,l.TextOutline
-            label.OutlineColor=self.config.Colors.TextOutline
-            label.Color=label.Text=='Downed' and Color3.fromRGB(255,35,35) or Color3.fromRGB(255,180,50)
-            label.Transparency=opacity*l.Opacity
-            label.Visible=label.Text~=''
-        end
-        for index,border in ipairs({record.TopTextBorder,record.BottomTextBorder}) do
-            local label=labels[index]
-            border.Text,border.Position,border.Size,border.Font=label.Text,label.Position,label.Size,label.Font
-            border.Color,border.OutlineColor=self.config.Colors.TextOutline,self.config.Colors.TextOutline
-            border.Transparency=opacity*l.Opacity*self:Opacity('Colors','TextOutline')
-            border.Visible=label.Visible and l.TextOutline
-        end
+    for index,border in ipairs({record.TopTextBorder,record.BottomTextBorder}) do
+        local label=labels[index]
+        border.Text,border.Position,border.Size,border.Font=label.Text,label.Position,label.Size,label.Font
+        border.Color,border.OutlineColor=black,black
+        border.Transparency=label.Transparency
+        border.Visible=label.Visible
     end
 end
 function Engine:ESP(camera, localRoot)
@@ -17439,20 +17353,14 @@ function Engine:ESP(camera, localRoot)
                 self:HideRecord(record)
                 local visible = self:Visible(character,(character:FindFirstChild('Head') or root).Position,camera)
                 if e.ThroughWalls or visible then
-                    local fill,outline,fillAlpha,outlineAlpha = self:Colors(other,visible,os.clock())
-                    local opacity = e.Opacity
-                    if e.Fade then
-                        local start = e.MaxDistance*e.FadeStart
-                        opacity = opacity * math.clamp((e.MaxDistance-distance)/math.max(1,e.MaxDistance-start),0,1)
-                    end
-                    local pulse = e.Pulse and (0.65+0.35*(0.5+0.5*math.sin(os.clock()*e.PulseSpeed*math.pi*2))) or 1
+                    local fill,outline,fillAlpha,outlineAlpha = self:Colors(other,visible)
                     local highlight = record.Highlight
-                    highlight.Enabled = (e.Chams or e.Outline) and opacity>0
+                    highlight.Enabled = e.Chams or e.Outline
                     highlight.DepthMode = e.ThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
                     highlight.FillColor,highlight.OutlineColor = fill,outline
-                    highlight.FillTransparency = e.Chams and 1-e.FillOpacity*opacity*pulse*fillAlpha or 1
-                    highlight.OutlineTransparency = e.Outline and 1-e.OutlineOpacity*opacity*pulse*outlineAlpha or 1
-                    self:DrawOverlay(record,other,character,humanoid,root,camera,distance,outline,opacity,outlineAlpha)
+                    highlight.FillTransparency = e.Chams and 1-e.FillOpacity*fillAlpha or 1
+                    highlight.OutlineTransparency = e.Outline and 1-e.OutlineOpacity*outlineAlpha or 1
+                    self:DrawLabels(record,other,character,humanoid,camera,distance)
                 end
             end
         end
@@ -19528,9 +19436,8 @@ local config={
         Tint=Color3.new(1,1,1),AtmosphereEnabled=false,Density=0.3,Haze=0,AtmosphereColor=Color3.new(1,1,1)},
     ESP={
         Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=false,SkipFriends=false,
-        MaxDistance=1500,RefreshRate=30,Opacity=1,FillOpacity=0.35,OutlineOpacity=1,
-        VisibleColors=false,TeamColors=false,TargetColor=true,Rainbow=false,RainbowSpeed=0.15,HealthColors=false,
-        Fade=false,FadeStart=0.6,Pulse=false,PulseSpeed=1,
+        MaxDistance=1500,RefreshRate=30,FillOpacity=0.35,OutlineOpacity=1,
+        VisibleColors=false,TeamColors=false,TargetColor=true,HealthColors=false,
     },
     ObjectESP={Scrap=false,GreenCrates=false,RedCrates=false,Airdrops=false,Dealers=false,
         MaxDistance=1500,MaxObjects=128,Highlight=true,Labels=true,Distance=true,ThroughWalls=true,FillTransparency=0.65},
@@ -19538,19 +19445,10 @@ local config={
         Fill=Color3.fromRGB(145,105,245),Outline=Color3.fromRGB(225,215,255),
         VisibleFill=Color3.fromRGB(90,220,150),VisibleOutline=Color3.fromRGB(140,255,190),
         HiddenFill=Color3.fromRGB(235,85,120),HiddenOutline=Color3.fromRGB(255,155,175),
-        Target=Color3.fromRGB(255,205,90),Box=Color3.fromRGB(195,175,255),
-        Tracer=Color3.fromRGB(175,150,255),Skeleton=Color3.fromRGB(235,230,255),
-        Text=Color3.fromRGB(245,245,250),TextOutline=Color3.new(0,0,0),
+        Target=Color3.fromRGB(255,205,90),Text=Color3.fromRGB(245,245,250),
         HealthLow=Color3.fromRGB(255,70,85),HealthHigh=Color3.fromRGB(80,235,130),
     },
-    Overlay={
-        Box=false,BoxStyle='Corners',Thickness=1,BlackOutline=true,MatchESP=true,
-        CornerLength=0.25,BoxFill=false,FillOpacity=0.08,
-        Tracers=false,TracerOrigin='Bottom',TracerThickness=1,
-        Skeleton=false,SkeletonThickness=1,HealthBar=false,HealthWidth=3,
-    },
-    Labels={Enabled=true,Names=true,NameMode='Both',Health=true,Distance=true,Tool=false,Team=false,Status=false,
-        Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
+    Labels={Enabled=true,Names=true,Health=true,Distance=true,Status=false,Size=13},
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
@@ -19715,7 +19613,7 @@ local ok,message=xpcall(function()
     for _,name in ipairs({'Aimbot','Combat','Character','ESP','World','Misc','Players','UI Settings'}) do
         tabs[name]=window:AddTab(name)
     end
-    local routes={Aim='Aimbot',['Aim+']='Aimbot',Colors='ESP',Overlay='ESP',Labels='ESP',Melee='Combat',Profiles='UI Settings'}
+    local routes={Aim='Aimbot',['Aim+']='Aimbot',Colors='ESP',Labels='ESP',Melee='Combat',Profiles='UI Settings'}
     local function sections(name,left,right)
         local tab=tabs[routes[name] or name]
         return tab:AddSection(left,1),tab:AddSection(right,2)
@@ -19765,9 +19663,6 @@ local ok,message=xpcall(function()
     toggle(left,'Skip Roblox friends','ESP','SkipFriends')
     slider(left,'Maximum distance','ESP','MaxDistance',50,5000,10,' studs')
     slider(left,'Refresh rate','ESP','RefreshRate',5,60,1,' Hz')
-    slider(left,'Global opacity','ESP','Opacity',0,1,0.01)
-    toggle(left,'Fade with distance','ESP','Fade')
-    slider(left,'Fade starts at fraction','ESP','FadeStart',0,0.95,0.01)
     toggle(right,'Chams / character fill','ESP','Chams')
     toggle(right,'Character outline','ESP','Outline')
     toggle(right,'HP ESP colors','ESP','HealthColors')
@@ -19776,49 +19671,21 @@ local ok,message=xpcall(function()
     toggle(right,'Visible / hidden colors','ESP','VisibleColors')
     toggle(right,'Use team colors','ESP','TeamColors')
     toggle(right,'Override current target color','ESP','TargetColor')
-    toggle(right,'Rainbow colors','ESP','Rainbow')
-    slider(right,'Rainbow cycles per second','ESP','RainbowSpeed',0.01,1,0.01)
-    toggle(right,'Pulse opacity','ESP','Pulse')
-    slider(right,'Pulse cycles per second','ESP','PulseSpeed',0.1,5,0.1)
-    left,right=sections('Colors','Character colors','Overlay colors')
+    left,right=sections('Colors','Character colors','Text and health colors')
     for _,item in ipairs({{'Fill','Base fill'},{'Outline','Base outline'},{'VisibleFill','Visible fill'},
         {'VisibleOutline','Visible outline'},{'HiddenFill','Hidden fill'},{'HiddenOutline','Hidden outline'},{'Target','Current target'}}) do
         color(left,item[2],'Colors',item[1])
     end
-    for _,item in ipairs({{'Box','Box'},{'Tracer','Tracers'},{'Skeleton','Skeleton'},{'Text','Labels'},
-        {'TextOutline','Label outline'},{'HealthLow','Low health'},{'HealthHigh','Full health'}}) do
+    for _,item in ipairs({{'Text','Labels'},{'HealthLow','Low health'},{'HealthHigh','Full health'}}) do
         color(right,item[2],'Colors',item[1])
     end
-    left,right=sections('Overlay','2D boxes','Skeleton, lines and health')
-    toggle(left,'Boxes','Overlay','Box')
-    select(left,'Box style','Overlay','BoxStyle',{'Full','Corners'})
-    slider(left,'Box thickness','Overlay','Thickness',1,5,0.5,' px')
-    toggle(left,'Black box outline','Overlay','BlackOutline')
-    toggle(left,'Match character color','Overlay','MatchESP')
-    slider(left,'Corner length fraction','Overlay','CornerLength',0.1,0.5,0.01)
-    toggle(left,'Fill box background','Overlay','BoxFill')
-    slider(left,'Box fill opacity','Overlay','FillOpacity',0,0.5,0.01)
-    toggle(right,'Skeleton','Overlay','Skeleton')
-    slider(right,'Skeleton thickness','Overlay','SkeletonThickness',1,5,0.5,' px')
-    toggle(right,'Tracers','Overlay','Tracers')
-    select(right,'Tracer origin','Overlay','TracerOrigin',{'Bottom','Center','Top'})
-    slider(right,'Tracer thickness','Overlay','TracerThickness',1,5,0.5,' px')
-    toggle(right,'Health bar','Overlay','HealthBar')
-    slider(right,'Health bar width','Overlay','HealthWidth',1,8,1,' px')
-    left,right=sections('Labels','Information','Text appearance')
+    left,right=sections('Labels','Information','Text size')
     toggle(left,'Enable labels','Labels','Enabled')
     toggle(left,'Names','Labels','Names')
-    select(left,'Name format','Labels','NameMode',{'Display name','Username','Both'})
     toggle(left,'Health numbers','Labels','Health')
     toggle(left,'Downed / Ragdolled status','Labels','Status')
     toggle(left,'Distance','Labels','Distance')
-    toggle(left,'Equipped tool','Labels','Tool')
-    toggle(left,'Team name','Labels','Team')
     slider(right,'Font size','Labels','Size',10,24,1,' px')
-    select(right,'Drawing font','Labels','Font',{'UI','System','Plex','Monospace'})
-    toggle(right,'Text outline','Labels','TextOutline')
-    slider(right,'Text opacity','Labels','Opacity',0,1,0.01)
-    slider(right,'Text offset','Labels','Offset',0,30,1,' px')
     left,right=sections('Melee','Melee Aura / Melee Assist','Melee filters')
     toggle(left,'Enable melee aura','Melee','Enabled')
     toggle(left,'Auto attack','Melee','AutoAttack')

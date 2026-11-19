@@ -103,9 +103,8 @@ local config={
         Tint=Color3.new(1,1,1),AtmosphereEnabled=false,Density=0.3,Haze=0,AtmosphereColor=Color3.new(1,1,1)},
     ESP={
         Enabled=false,Chams=true,Outline=true,ThroughWalls=true,TeamCheck=false,SkipFriends=false,
-        MaxDistance=1500,RefreshRate=30,Opacity=1,FillOpacity=0.35,OutlineOpacity=1,
-        VisibleColors=false,TeamColors=false,TargetColor=true,Rainbow=false,RainbowSpeed=0.15,HealthColors=false,
-        Fade=false,FadeStart=0.6,Pulse=false,PulseSpeed=1,
+        MaxDistance=1500,RefreshRate=30,FillOpacity=0.35,OutlineOpacity=1,
+        VisibleColors=false,TeamColors=false,TargetColor=true,HealthColors=false,
     },
     ObjectESP={Scrap=false,GreenCrates=false,RedCrates=false,Airdrops=false,Dealers=false,
         MaxDistance=1500,MaxObjects=128,Highlight=true,Labels=true,Distance=true,ThroughWalls=true,FillTransparency=0.65},
@@ -113,19 +112,10 @@ local config={
         Fill=Color3.fromRGB(145,105,245),Outline=Color3.fromRGB(225,215,255),
         VisibleFill=Color3.fromRGB(90,220,150),VisibleOutline=Color3.fromRGB(140,255,190),
         HiddenFill=Color3.fromRGB(235,85,120),HiddenOutline=Color3.fromRGB(255,155,175),
-        Target=Color3.fromRGB(255,205,90),Box=Color3.fromRGB(195,175,255),
-        Tracer=Color3.fromRGB(175,150,255),Skeleton=Color3.fromRGB(235,230,255),
-        Text=Color3.fromRGB(245,245,250),TextOutline=Color3.new(0,0,0),
+        Target=Color3.fromRGB(255,205,90),Text=Color3.fromRGB(245,245,250),
         HealthLow=Color3.fromRGB(255,70,85),HealthHigh=Color3.fromRGB(80,235,130),
     },
-    Overlay={
-        Box=false,BoxStyle='Corners',Thickness=1,BlackOutline=true,MatchESP=true,
-        CornerLength=0.25,BoxFill=false,FillOpacity=0.08,
-        Tracers=false,TracerOrigin='Bottom',TracerThickness=1,
-        Skeleton=false,SkeletonThickness=1,HealthBar=false,HealthWidth=3,
-    },
-    Labels={Enabled=true,Names=true,NameMode='Both',Health=true,Distance=true,Tool=false,Team=false,Status=false,
-        Size=13,Font='Plex',TextOutline=true,Opacity=1,Offset=0},
+    Labels={Enabled=true,Names=true,Health=true,Distance=true,Status=false,Size=13},
     Melee={Enabled=false,AutoAttack=true,Range=10,Interval=0.5,SwingWindow=0.35,
         Part='Head',Priority='Distance',TeamCheck=false,SkipFriends=true,
         SkipForceField=true,WallCheck=true,MinHealth=1,PauseMenu=true,SkipDowned=true},
@@ -290,7 +280,7 @@ local ok,message=xpcall(function()
     for _,name in ipairs({'Aimbot','Combat','Character','ESP','World','Misc','Players','UI Settings'}) do
         tabs[name]=window:AddTab(name)
     end
-    local routes={Aim='Aimbot',['Aim+']='Aimbot',Colors='ESP',Overlay='ESP',Labels='ESP',Melee='Combat',Profiles='UI Settings'}
+    local routes={Aim='Aimbot',['Aim+']='Aimbot',Colors='ESP',Labels='ESP',Melee='Combat',Profiles='UI Settings'}
     local function sections(name,left,right)
         local tab=tabs[routes[name] or name]
         return tab:AddSection(left,1),tab:AddSection(right,2)
@@ -340,9 +330,6 @@ local ok,message=xpcall(function()
     toggle(left,'Skip Roblox friends','ESP','SkipFriends')
     slider(left,'Maximum distance','ESP','MaxDistance',50,5000,10,' studs')
     slider(left,'Refresh rate','ESP','RefreshRate',5,60,1,' Hz')
-    slider(left,'Global opacity','ESP','Opacity',0,1,0.01)
-    toggle(left,'Fade with distance','ESP','Fade')
-    slider(left,'Fade starts at fraction','ESP','FadeStart',0,0.95,0.01)
     toggle(right,'Chams / character fill','ESP','Chams')
     toggle(right,'Character outline','ESP','Outline')
     toggle(right,'HP ESP colors','ESP','HealthColors')
@@ -351,49 +338,21 @@ local ok,message=xpcall(function()
     toggle(right,'Visible / hidden colors','ESP','VisibleColors')
     toggle(right,'Use team colors','ESP','TeamColors')
     toggle(right,'Override current target color','ESP','TargetColor')
-    toggle(right,'Rainbow colors','ESP','Rainbow')
-    slider(right,'Rainbow cycles per second','ESP','RainbowSpeed',0.01,1,0.01)
-    toggle(right,'Pulse opacity','ESP','Pulse')
-    slider(right,'Pulse cycles per second','ESP','PulseSpeed',0.1,5,0.1)
-    left,right=sections('Colors','Character colors','Overlay colors')
+    left,right=sections('Colors','Character colors','Text and health colors')
     for _,item in ipairs({{'Fill','Base fill'},{'Outline','Base outline'},{'VisibleFill','Visible fill'},
         {'VisibleOutline','Visible outline'},{'HiddenFill','Hidden fill'},{'HiddenOutline','Hidden outline'},{'Target','Current target'}}) do
         color(left,item[2],'Colors',item[1])
     end
-    for _,item in ipairs({{'Box','Box'},{'Tracer','Tracers'},{'Skeleton','Skeleton'},{'Text','Labels'},
-        {'TextOutline','Label outline'},{'HealthLow','Low health'},{'HealthHigh','Full health'}}) do
+    for _,item in ipairs({{'Text','Labels'},{'HealthLow','Low health'},{'HealthHigh','Full health'}}) do
         color(right,item[2],'Colors',item[1])
     end
-    left,right=sections('Overlay','2D boxes','Skeleton, lines and health')
-    toggle(left,'Boxes','Overlay','Box')
-    select(left,'Box style','Overlay','BoxStyle',{'Full','Corners'})
-    slider(left,'Box thickness','Overlay','Thickness',1,5,0.5,' px')
-    toggle(left,'Black box outline','Overlay','BlackOutline')
-    toggle(left,'Match character color','Overlay','MatchESP')
-    slider(left,'Corner length fraction','Overlay','CornerLength',0.1,0.5,0.01)
-    toggle(left,'Fill box background','Overlay','BoxFill')
-    slider(left,'Box fill opacity','Overlay','FillOpacity',0,0.5,0.01)
-    toggle(right,'Skeleton','Overlay','Skeleton')
-    slider(right,'Skeleton thickness','Overlay','SkeletonThickness',1,5,0.5,' px')
-    toggle(right,'Tracers','Overlay','Tracers')
-    select(right,'Tracer origin','Overlay','TracerOrigin',{'Bottom','Center','Top'})
-    slider(right,'Tracer thickness','Overlay','TracerThickness',1,5,0.5,' px')
-    toggle(right,'Health bar','Overlay','HealthBar')
-    slider(right,'Health bar width','Overlay','HealthWidth',1,8,1,' px')
-    left,right=sections('Labels','Information','Text appearance')
+    left,right=sections('Labels','Information','Text size')
     toggle(left,'Enable labels','Labels','Enabled')
     toggle(left,'Names','Labels','Names')
-    select(left,'Name format','Labels','NameMode',{'Display name','Username','Both'})
     toggle(left,'Health numbers','Labels','Health')
     toggle(left,'Downed / Ragdolled status','Labels','Status')
     toggle(left,'Distance','Labels','Distance')
-    toggle(left,'Equipped tool','Labels','Tool')
-    toggle(left,'Team name','Labels','Team')
     slider(right,'Font size','Labels','Size',10,24,1,' px')
-    select(right,'Drawing font','Labels','Font',{'UI','System','Plex','Monospace'})
-    toggle(right,'Text outline','Labels','TextOutline')
-    slider(right,'Text opacity','Labels','Opacity',0,1,0.01)
-    slider(right,'Text offset','Labels','Offset',0,30,1,' px')
     left,right=sections('Melee','Melee Aura / Melee Assist','Melee filters')
     toggle(left,'Enable melee aura','Melee','Enabled')
     toggle(left,'Auto attack','Melee','AutoAttack')

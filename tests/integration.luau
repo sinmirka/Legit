@@ -13,10 +13,18 @@ option('Colors_Fill'):SetColor(Color3.fromRGB(10,20,30))
 option('Colors_Fill'):SetTrans(0.25)
 assert(app.Config.ESP.Enabled and app.Config.ESP.FillOpacity==0.6,'toggle/slider callbacks')
 assert(app.Config.Colors.Fill.R==10/255 and app.Config.Alpha.Colors_Fill==0.75,'color and alpha callbacks')
-option('Labels_Font'):Select('Monospace')
-assert(app.Config.Labels.Font=='Monospace','font selection')
+option('Labels_Size'):SetValue(15)
+assert(app.Config.Labels.Size==15,'label size')
+for _,flag in ipairs({'Overlay_Box','Overlay_BoxStyle','Overlay_Thickness','Overlay_BlackOutline','Overlay_MatchESP',
+    'Overlay_CornerLength','Overlay_BoxFill','Overlay_FillOpacity','Overlay_Skeleton','Overlay_SkeletonThickness',
+    'Overlay_Tracers','Overlay_TracerOrigin','Overlay_TracerThickness','Overlay_HealthBar','Overlay_HealthWidth',
+    'Colors_Box','Colors_Tracer','Colors_Skeleton','Colors_TextOutline','ESP_Opacity','ESP_Fade','ESP_FadeStart',
+    'ESP_Rainbow','ESP_RainbowSpeed','ESP_Pulse','ESP_PulseSpeed','Labels_NameMode','Labels_Tool','Labels_Team',
+    'Labels_Font','Labels_TextOutline','Labels_Opacity','Labels_Offset'}) do
+    assert(not app.Library.options[flag],'removed visual control: '..flag)
+end
 for _,tab in ipairs(app.Library.windows[1].tabs) do tab:Select() end
-print('PASS tab switching and live toggle, slider, font, color and alpha changes')
+print('PASS tab switching and live toggle, slider, label size, color and alpha changes')
 local function button(label)
     for _,tab in ipairs(app.Library.windows[1].tabs) do for _,section in ipairs(tab.sections) do
         for _,item in ipairs(section.options) do if item.class=='button' and item.text==label then return item end end
@@ -47,6 +55,16 @@ button('Save profile').callback()
 assert(not MOCK.files['Legit/Universal/configs/../outside.json'],'profile path traversal')
 option('profile_name'):SetInput('default')
 print('PASS invalid profile prevalidation and path restriction')
+MOCK.files['Legit/Universal/configs/default.json']=Http:JSONEncode({version=1,settings={
+    ESP_Enabled=true,Overlay_Box=true,Overlay_Skeleton=true,ESP_Pulse=true,ESP_Rainbow=true,
+    ESP_Fade=true,Labels_Font='Monospace',Labels_Opacity=0,Labels_Tool=true,Colors_Box={1,0,0,1}}})
+button('Load profile').callback()
+assert(app.Config.ESP.Enabled and app.Config.Overlay==nil and app.Config.ESP.Pulse==nil
+    and app.Config.Labels.Font==nil and app.Config.Colors.Box==nil,'legacy profile retains supported settings and ignores removed visuals')
+button('Save profile').callback()
+local saved=Http:JSONDecode(MOCK.files['Legit/Universal/configs/default.json']).settings
+assert(saved.Overlay_Box==nil and saved.ESP_Pulse==nil and saved.Labels_Font==nil,'new profiles omit removed visuals')
+button('Reset defaults').callback()
 
 local Engine=assert(loadstring(SOURCES['src/Engine.lua'],'@Engine.lua'))()
 local tested=Engine.new(app.Config,app.Library)
@@ -125,16 +143,18 @@ assert(tested.target and camera.CFrame.LastAlpha and camera.CFrame.LastAlpha>0,'
 print('PASS teams, neutral, friends, R6, missing parts, death, range, FOV, walls, prediction, delay, sticky, priorities and aim pause')
 e.Enabled=true; e.VisibleColors=true; e.TargetColor=false
 app.Config.Alpha.Colors_VisibleFill=0.3
-app.Config.Overlay.Box=true; app.Config.Overlay.BoxFill=true; app.Config.Overlay.Skeleton=true
-app.Config.Overlay.Tracers=true; app.Config.Overlay.HealthBar=true
+-- Legacy visual fields cannot recreate removed renderers or effects.
+app.Config.Overlay={Box=true,BoxFill=true,Skeleton=true,Tracers=true,HealthBar=true}
+e.Rainbow=true; e.Pulse=true; e.Fade=true; e.Opacity=0
+app.Config.Labels.Font='Monospace'; app.Config.Labels.Opacity=0; app.Config.Labels.Offset=100
+app.Config.Labels.Tool=true; app.Config.Labels.Team=true
 tested:ESP(camera,localRoot)
 local record=assert(tested.records[other],'ESP record')
-assert(record.Highlight.Enabled and record.TopText.Visible and record.HealthBar.Visible,'chams and labels')
-assert(record.Corners[1].Visible and record.Fill.Visible and record.Tracer.Visible,'corner box and tracer')
-assert(record.Bones[15].Visible,'R6 skeleton')
-assert(math.abs(record.Highlight.FillTransparency-(1-e.FillOpacity*0.3))<1e-9,'per-color opacity')
-app.Config.Overlay.BoxStyle='Full'; tested:ESP(camera,localRoot)
-assert(record.Box.Visible and not record.Corners[1].Visible,'full box clears corners')
+assert(record.Highlight.Enabled and record.TopText.Visible and record.BottomText.Visible,'chams and labels remain')
+assert(#record.Drawings==5 and not record.Box and not record.Bones and not record.Tracer and not record.HealthBar,'removed overlays allocate no objects')
+for _,object in ipairs(record.Drawings) do assert(object.Class=='Text','only labels are allocated') end
+assert(record.TopText.Font==2 and record.TopText.Transparency>0,'legacy text styles ignored')
+assert(math.abs(record.Highlight.FillTransparency-(1-e.FillOpacity*0.3))<1e-9,'per-color opacity preserved; legacy effects ignored')
 e.HealthColors=true; app.Config.Labels.Status=true
 for _,hp in ipairs({1,15,50,100}) do
     humanoid.Health=hp; humanoid.PlatformStand=true; tested:ESP(camera,localRoot)
@@ -155,7 +175,7 @@ e.Enabled=false; workspace.Hit=nil; tested:ESP(camera,localRoot)
 assert(not tested.records[other],'disabled ESP frees record')
 tested:Destroy()
 button('Reset defaults').callback()
-print('PASS chams, per-color alpha, labels, corner/full boxes, skeleton, tracers, health bars, occlusion and resource cleanup')
+print('PASS simplified ESP: chams, per-color alpha, labels, legacy overlays ignored, occlusion and resource cleanup')
 -- Run the actual main engine render binding, including hardware input polling.
 local input=MOCK.services.UserInputService
 local run=MOCK.services.RunService

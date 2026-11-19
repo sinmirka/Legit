@@ -23,7 +23,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/sinmirka/Legit/main/L
 | Aimbot | Camera Aim и Silent Aim: части тела, FOV, фильтры, приоритеты, prediction; автострельба и перебор целей для Silent |
 | Combat | Melee Aura: автоатака / ручные удары, дальность, интервал, часть тела, фильтры |
 | Character | Noclip, velocity speed, infinite stamina, spinbot, ограничение частоты прыжков |
-| ESP | Игроки, HP / downed, chams, рамки, скелет, подписи; scrap, crates, airdrops и dealers |
+| ESP | Игроки, chams / контур, имена, HP, дистанция и downed; scrap, crates, airdrops и dealers |
 | World | Время, освещение, тени, bloom, color correction и атмосфера |
 | Misc | Instant interaction, Dex, Remote Spy, копирование PlaceId / JobId, переподключение |
 | Players | Поиск, Friend / Neutral / Enemy, наблюдение |
@@ -32,6 +32,18 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/sinmirka/Legit/main/L
 Friend исключает игрока из Camera Aim, Silent и Melee. Enemy повышает приоритет среди целей, прошедших фильтры. Эти пометки действуют до выхода игрока / выгрузки и в профиль не записываются.
 
 FOV — радиус вокруг центра экрана. Full360 у Silent убирает экранное ограничение. Team check можно включить отдельно. Для отсутствующих частей R15 используются соответствия R6. Downed / Ragdolled с HP ≤15 исключается при включённом Skip downed.
+
+## Упрощённый ESP
+
+Из меню удалены 33 элемента управления:
+
+- 2D-боксы Full / Corners: рамки, фон, обводка, толщина, длина углов, прозрачность и подбор цвета.
+- Скелет, линии к игрокам и отдельная HP-полоска вместе с настройками толщины, позиции, ширины и цветов.
+- Rainbow, пульсация, затухание по расстоянию и отдельная общая прозрачность ESP.
+- Выбор шрифта и формата имени, смещение, отдельная прозрачность и настройка обводки подписей.
+- Подписи инструмента и команды.
+
+Сохранены chams, контур, основные цвета и их прозрачность, HP-раскраска, фильтры игроков, дальность, имена, числовое здоровье, дистанция, Downed / Ragdolled и размер текста. Имя отображается вместе с username; шрифт и чёрная обводка фиксированы. ESP объектов сохранён. Старые профили загружаются, а удалённые поля игнорируются; они не восстанавливают удалённые эффекты.
 
 ## Silent Aim для Criminality
 
